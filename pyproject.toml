@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "feed-concentration-control"
+version = "0.1.0"
+description = "Model process plant feed concentration blending tank operations to minimize variations in plant feed stream due to unpredictable disturbances in the concentration of delivered quantities"
+readme = "README.md"
+requires-python = ">=3.8"
+license = "MIT"
+authors = [
+    {name = "Bill Tubbs", email = "bill.tubbs@me.com"}
+]
+keywords = ["process control", "blending tank", "concentration control", "optimization"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "casadi==3.7.2",
+    "casadi-models @ git+https://github.com/billtubbs/casadi-models.git",
+    "ipykernel==7.1.0",
+    "ipython==9.6.0",
+    "matplotlib==3.10.7",
+    "numpy==2.3.4",
+    "pandas==2.3.3",
+    "pytest==8.4.2",
+    "PyYAML==6.0.3",
+    "scipy==1.16.3",
+    "sympy==1.14.0",
+    "tqdm==4.67.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.4.2",
+    "ipykernel>=7.1.0",
+    "ipython>=9.6.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
