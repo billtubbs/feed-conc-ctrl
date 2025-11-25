@@ -47,16 +47,32 @@ class MixingTankModelCT(StateSpaceModelCT):
         - Tunable accuracy via choice of dt
     """
 
-    def __init__(self, D):
+    def __init__(self, D=None, A=None):
         """Initialize a mixing tank model.
 
         Args:
-            D (float): Tank diameter [m]
+            D (float, optional): Tank diameter [m]
+            A (float, optional): Tank cross-sectional area [m^2]
+
+        Note:
+            Exactly one of D or A must be provided.
+            If D is provided, A is calculated as A = π * D² / 4
         """
 
-        # Compute cross-sectional area from diameter
-        # Note: Using A = π * D as in the notebook (not the standard π * D²/4)
-        A = float(np.pi * D)
+        # Validate inputs - exactly one must be provided
+        if D is None and A is None:
+            raise ValueError("Must provide either D (diameter) or A (area)")
+        if D is not None and A is not None:
+            raise ValueError("Cannot provide both D and A, choose one")
+
+        # Compute area from diameter if D is provided
+        if D is not None:
+            # A = π * r² = π * (D/2)² = π * D² / 4
+            A = float(np.pi * (D**2) / 4)
+        else:
+            # A was provided directly
+            A = float(A)
+            D = None  # Diameter is unknown
 
         # Define symbolic variables
         t = cas.SX.sym("t")
@@ -66,7 +82,6 @@ class MixingTankModelCT(StateSpaceModelCT):
         # Differential equations (ODE right-hand side)
         dL_dt = (u[0] - u[2]) / A
         dm_dt = u[0] * u[1] - u[2] * x[1] / (x[0] * A)
-
         rhs = cas.vertcat(dL_dt, dm_dt)
 
         # State transition function (ODE)
@@ -76,10 +91,8 @@ class MixingTankModelCT(StateSpaceModelCT):
         # conc_out = m / (A * L) = mass / volume
         conc_out = x[1] / (A * x[0])
         y = cas.vertcat(x[0], x[1], conc_out)
-
         h = cas.Function("h", [t, x, u], [y], ["t", "x", "u"], ["y"])
 
-        # Initialize parent class
         super().__init__(
             f=f,
             h=h,
@@ -122,19 +135,23 @@ class MixingTankModelDT(StateSpaceModelDTFromCTRK4):
         y[2]: Concentration/density of outflow, conc_out [tons/m^3]
     """
 
-    def __init__(self, D, dt=0.25):
+    def __init__(self, D=None, A=None, dt=0.25):
         """Initialize a discrete-time mixing tank model.
 
         Args:
-            D (float): Tank diameter [m]
+            D (float, optional): Tank diameter [m]
+            A (float, optional): Tank cross-sectional area [m^2]
             dt (float, optional): Time step [hr]. Default: 0.25
+
+        Note:
+            Exactly one of D or A must be provided.
         """
         # Create continuous-time model
-        model_ct = MixingTankModelCT(D=D)
+        model_ct = MixingTankModelCT(D=D, A=A)
 
         # Initialize parent class with RK4 integration
         super().__init__(model_ct, dt)
 
         # Store tank parameters for easy access
-        self.D = D
+        self.D = model_ct.D
         self.A = model_ct.A

@@ -10,8 +10,8 @@ from cas_models.continuous_time.models import StateSpaceModelCT
 class TestMixingTankModelCT:
     """Test suite for MixingTankModelCT class"""
 
-    def test_initialization(self):
-        """Test that MixingTankModelCT initializes correctly"""
+    def test_initialization_with_D(self):
+        """Test that MixingTankModelCT initializes correctly with diameter"""
         D = 5  # tank diameter [m]
 
         model = MixingTankModelCT(D=D)
@@ -25,7 +25,7 @@ class TestMixingTankModelCT:
 
         # Check tank parameters
         assert model.D == D
-        assert model.A == np.pi * D
+        assert model.A == np.pi * D**2 / 4
 
         # Check names
         assert model.state_names == ["L", "m"]
@@ -36,10 +36,41 @@ class TestMixingTankModelCT:
         assert hasattr(model, 'f')
         assert hasattr(model, 'h')
 
+    def test_initialization_with_A(self):
+        """Test that MixingTankModelCT initializes correctly with area"""
+        A = 19.634954084936208  # tank area [m^2] for D=5
+
+        model = MixingTankModelCT(A=A)
+
+        assert isinstance(model, StateSpaceModelCT)
+
+        # Check model dimensions
+        assert model.n == 2, "Should have 2 states"
+        assert model.nu == 3, "Should have 3 inputs"
+        assert model.ny == 3, "Should have 3 outputs"
+
+        # Check tank parameters
+        assert model.D is None  # Diameter is unknown when A is provided
+        assert model.A == A
+
+        # Check functions exist
+        assert hasattr(model, 'f')
+        assert hasattr(model, 'h')
+
+    def test_initialization_validation(self):
+        """Test initialization validation - must provide D or A, not both"""
+        # Test providing neither
+        with pytest.raises(ValueError, match="Must provide either D .* or A .*"):
+            MixingTankModelCT()
+
+        # Test providing both
+        with pytest.raises(ValueError, match="Cannot provide both D and A"):
+            MixingTankModelCT(D=5, A=15.7)
+
     def test_ode_function(self):
         """Test the ODE right-hand side function"""
         D = 5
-        A = np.pi * D
+        A = np.pi * D**2 / 4
         model = MixingTankModelCT(D=D)
 
         # Test case: equal flows
@@ -67,7 +98,7 @@ class TestMixingTankModelCT:
     def test_output_function(self):
         """Test the output function"""
         D = 5
-        A = np.pi * D
+        A = np.pi * D**2 / 4
         model = MixingTankModelCT(D=D)
 
         L = 8.0

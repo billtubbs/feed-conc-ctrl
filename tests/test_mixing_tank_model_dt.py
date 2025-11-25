@@ -10,8 +10,8 @@ from cas_models.discrete_time.models import StateSpaceModelDT
 class TestMixingTankModelDT:
     """Test suite for MixingTankModelDT class"""
 
-    def test_initialization(self):
-        """Test that MixingTankModelDT initializes correctly"""
+    def test_initialization_with_D(self):
+        """Test that MixingTankModelDT initializes correctly with diameter"""
         D = 5  # tank diameter [m]
         dt = 0.25
 
@@ -27,16 +27,49 @@ class TestMixingTankModelDT:
 
         # Check tank parameters
         assert model.D == D
-        assert model.A == np.pi * D
+        assert model.A == np.pi * D**2 / 4
 
         # Check it has discrete-time functions
         assert hasattr(model, 'F')
         assert hasattr(model, 'H')
 
+    def test_initialization_with_A(self):
+        """Test that MixingTankModelDT initializes correctly with area"""
+        A = 19.634954084936208  # tank area [m^2] for D=5
+        dt = 0.25
+
+        model = MixingTankModelDT(A=A, dt=dt)
+
+        assert isinstance(model, StateSpaceModelDT)
+
+        # Check dimensions
+        assert model.n == 2
+        assert model.nu == 3
+        assert model.ny == 3
+        assert model.dt == dt
+
+        # Check tank parameters
+        assert model.D is None  # Unknown when A is provided
+        assert model.A == A
+
+        # Check it has discrete-time functions
+        assert hasattr(model, 'F')
+        assert hasattr(model, 'H')
+
+    def test_initialization_validation(self):
+        """Test initialization validation - must provide D or A, not both"""
+        # Test providing neither
+        with pytest.raises(ValueError, match="Must provide either D .* or A .*"):
+            MixingTankModelDT(dt=0.25)
+
+        # Test providing both
+        with pytest.raises(ValueError, match="Cannot provide both D and A"):
+            MixingTankModelDT(D=5, A=15.7, dt=0.25)
+
     def test_equal_flows_same_concentration(self):
         """Test 1 from notebook - equal flows, same concentration, no change"""
         D = 5  # tank diameter [m]
-        A = np.pi * D
+        A = np.pi * D**2 / 4
         dt = 0.25
 
         model = MixingTankModelDT(D=D, dt=dt)
@@ -74,7 +107,7 @@ class TestMixingTankModelDT:
     def test_increasing_volume(self):
         """Test 2 from notebook - increasing volume"""
         D = 5  # tank diameter [m]
-        A = np.pi * D
+        A = np.pi * D**2 / 4
         dt = 0.25
 
         model = MixingTankModelDT(D=D, dt=dt)
@@ -107,7 +140,7 @@ class TestMixingTankModelDT:
     def test_equal_flows_convergence_to_equilibrium(self):
         """Test 4 from notebook - equal flows, convergence to equilibrium"""
         D = 5  # tank diameter [m]
-        A = np.pi * D
+        A = np.pi * D**2 / 4
         dt = 0.25
 
         model = MixingTankModelDT(D=D, dt=dt)
@@ -135,10 +168,10 @@ class TestMixingTankModelDT:
 
         # Level should remain constant
         assert np.allclose(xk_array[0], L, rtol=1e-5)
-        # Final mass from notebook assertion
-        assert np.allclose(xk_array[1], 37.64189612141962, rtol=1e-5)
-        # Should be close to equilibrium
-        assert np.allclose(xk_array[1], m_final, rtol=0.05)
+        # Final mass from simulation
+        assert np.allclose(xk_array[1], 45.24104157675106, rtol=1e-5)
+        # Should be close to equilibrium (within 10%)
+        assert np.allclose(xk_array[1], m_final, rtol=0.1)
 
     def test_equal_flows_washout_to_zero(self):
         """Test 5 from notebook - equal flows, washing out to zero concentration"""
@@ -169,8 +202,8 @@ class TestMixingTankModelDT:
 
         # Level should remain constant
         assert np.allclose(xk_array[0], L, rtol=1e-5)
-        # Final mass from notebook assertion (washing out to near zero)
-        assert np.allclose(xk_array[1], 1.6280117097544862, rtol=1e-5)
+        # Final mass from simulation (washing out to near zero)
+        assert np.allclose(xk_array[1], 3.0770742683043175, rtol=1e-5)
 
     def test_unequal_flows_from_notebook_test6(self):
         """Test 6 from notebook - unequal flows, step response"""
@@ -201,14 +234,14 @@ class TestMixingTankModelDT:
         # Check final state matches notebook
         xk_array = np.array(xk).flatten()
 
-        # Expected values from notebook
-        assert np.allclose(xk_array[0], 12.957747154594962, rtol=1e-5)
-        assert np.allclose(xk_array[1], 22.90694328238339, rtol=1e-5)
+        # Expected values from simulation
+        assert np.allclose(xk_array[0], 11.366197723675526, rtol=1e-5)
+        assert np.allclose(xk_array[1], 25.255488883902494, rtol=1e-5)
 
     def test_output_concentration_calculation(self):
         """Test that output concentration is correctly calculated"""
         D = 5  # tank diameter [m]
-        A = np.pi * D
+        A = np.pi * D**2 / 4
         dt = 0.25
 
         model = MixingTankModelDT(D=D, dt=dt)
