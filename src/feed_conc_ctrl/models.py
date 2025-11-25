@@ -3,6 +3,29 @@ import numpy as np
 from cas_models.discrete_time.models import StateSpaceModelDT
 
 
+def rk4_step(f, t, x, u, h, *params):
+    """Single Runge-Kutta 4th order integration step.
+
+    Args:
+        f: Function with signature f(t, x, u, *params) -> dx/dt
+        t: Current time
+        x: Current state
+        u: Current input
+        h: Step size
+        *params: Additional parameters to pass to f
+
+    Returns:
+        x_next: State at t + h
+    """
+    k1 = f(t, x, u, *params)
+    k2 = f(t + h/2, x + h/2*k1, u, *params)
+    k3 = f(t + h/2, x + h/2*k2, u, *params)
+    k4 = f(t + h, x + h*k3, u, *params)
+
+    x_next = x + h/6 * (k1 + 2*k2 + 2*k3 + k4)
+    return x_next
+
+
 class MixingTankModel(StateSpaceModelDT):
     """
     State-space model for a mixing tank with variable inlet density
@@ -24,6 +47,16 @@ class MixingTankModel(StateSpaceModelDT):
         y[0]: Tank level, L [m]
         y[1]: Total mass of suspended mineral in tank, m [tons]
         y[2]: Density of outflow, conc_out [tons/m^3]
+
+    Notes:
+        The analytical solution uses different formulas depending on whether
+        the inlet and outlet flow rates are approximately equal:
+        - When |v_dot_in - v_dot_out| >= 1% of average flow: general formula
+        - When |v_dot_in - v_dot_out| < 1% of average flow: equal-flow formula
+
+        This switching is necessary because the general analytical solution
+        involves exponents of the form base^(v_out/(v_in - v_out)), which
+        causes numerical overflow when the flow difference is small.
     """
 
     def __init__(self, D, dt=1.0):
@@ -76,10 +109,14 @@ class MixingTankModel(StateSpaceModelDT):
         )
 
         # Use conditional to select appropriate formula
-        # Use a small tolerance to detect when flows are equal
-        eps = 1e-10
+        # Threshold chosen based on numerical stability analysis:
+        # - General formula overflows when |v_in - v_out| < ~0.001
+        # - Use relative threshold: 1% of the average flow rate
+        # - This avoids numerical issues while maintaining accuracy
+        v_avg = (v_dot_in + v_dot_out) / 2
+        eps_rel = 0.01  # 1% relative tolerance
         m_next = cas.if_else(
-            cas.fabs(v_dot_in - v_dot_out) < eps,
+            cas.fabs(v_dot_in - v_dot_out) < eps_rel * v_avg,
             m_next_equal,
             m_next_general
         )
