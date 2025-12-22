@@ -1,9 +1,13 @@
 """State-space models for mixing tank with concentration control."""
 
+from itertools import chain
 import casadi as cas
 import numpy as np
 from cas_models.continuous_time.models import StateSpaceModelCT
-from cas_models.discrete_time.models import StateSpaceModelDTFromCTRK4
+from cas_models.discrete_time.models import (
+    StateSpaceModelDT,
+    StateSpaceModelDTFromCTRK4,
+)
 
 
 class MixingTankModelCT(StateSpaceModelCT):
@@ -136,7 +140,7 @@ class MixingTankModelDT(StateSpaceModelDTFromCTRK4):
         y[2]: Concentration/density of outflow, conc_out [tons/m^3]
     """
 
-    def __init__(self, D=None, A=None, dt=1, name=None):
+    def __init__(self, dt, D=None, A=None, name=None):
         """Initialize a discrete-time mixing tank model.
 
         Args:
@@ -156,3 +160,143 @@ class MixingTankModelDT(StateSpaceModelDTFromCTRK4):
         # Store tank parameters for easy access
         self.D = model_ct.D
         self.A = model_ct.A
+
+
+class FlowMixerCT(StateSpaceModelCT):
+    """
+    Continuous-time state-space model for a flow mixer with n inlet streams
+    and one outlet stream.
+
+    States:
+        None
+
+    Inputs:
+        u[0]: Volumetric flowrate into mixer from stream 1, v_dot_1 [m^3/hr]
+        u[1]: Density of fluid entering mixer from stream 1, conc_1 [tons/m^3]
+        ...
+        u[n-2]: Volumetric flowrate into mixer from stream n-1, v_dot_n-1 [m^3/hr]
+        u[n-1]: Density of fluid entering mixer from stream n-1, conc_n-1 [tons/m^3]
+
+    Outputs:
+        y[0]: Volumetric flowrate out of mixer, v_dot_out [m^3/hr]
+        y[1]: Density of fluid exiting mixer, conc_out [tons/m^3]
+    """
+
+    def __init__(self, n_in=2, name="FlowMixerModel"):
+        """Initialize a flow mixer model.
+
+        Args:
+            n_in (int, optional): Number of inlet streams (default: 2)
+            name (str, optional): Give the mixer a name (default: "FlowMixerModel").
+        """
+
+        if n_in < 2:
+            raise ValueError("n_in must be at least 2")
+
+        input_names = list(
+            chain.from_iterable(
+                [f"v_dot_in_{i + 1}", f"conc_in_{i + 1}"] for i in range(n_in)
+            )
+        )
+        output_names = ["v_dot_out", "conc_out"]
+
+        # Dimensions
+        n = 0  # No states
+        nu = 2 * n_in
+        ny = 2
+
+        # Define symbolic variables
+        t = cas.SX.sym("t")
+        x = cas.SX.sym("x", n)
+        u = cas.SX.sym("u", nu)
+
+        # No dynamics
+        rhs = cas.vertcat()  # Empty
+
+        # State transition function (empty)
+        f = cas.Function("f", [t, x, u], [rhs], ["t", "x", "u"], ["rhs"])
+
+        # Sum of all inlet flow rates
+        v_dot_out = cas.sum1(u[0::2])
+
+        # Sum of flow rate * concentration
+        conc_out_numerator = cas.sum1(u[0::2] * u[1::2])
+
+        # Weighted average concentration
+        conc_out = conc_out_numerator / v_dot_out
+
+        # Output function
+        y = cas.vertcat(v_dot_out, conc_out)
+        h = cas.Function("h", [t, x, u], [y], ["t", "x", "u"], ["y"])
+
+        super().__init__(
+            f=f,
+            h=h,
+            n=n,
+            nu=nu,
+            ny=ny,
+            params=None,
+            name=name,
+            input_names=input_names,
+            state_names=[],
+            output_names=output_names,
+        )
+
+
+class FlowMixerDT(StateSpaceModelDT):
+    """
+    Discrete-time state-space model for a flow mixer with n inlet streams
+    and one outlet stream.
+
+    States:
+        None
+
+    Inputs:
+        uk[0]: Volumetric flowrate into mixer from stream 1, v_dot_1 [m^3/hr]
+        uk[1]: Density of fluid entering mixer from stream 1, conc_1 [tons/m^3]
+        ...
+        uk[n-2]: Volumetric flowrate into mixer from stream n-1, v_dot_n-1 [m^3/hr]
+        uk[n-1]: Density of fluid entering mixer from stream n-1, conc_n-1 [tons/m^3]
+
+    Outputs:
+        yk[0]: Volumetric flowrate out of mixer, v_dot_out [m^3/hr]
+        yk[1]: Density of fluid exiting mixer, conc_out [tons/m^3]
+    """
+
+    def __init__(self, dt, n_in, name=None):
+        """Initialize a discrete-time flow mixer model.
+
+        Args:
+            dt (float): Time step
+            n_in (int): Number of inlet streams
+            name (str, optional): Name for the mixer
+        """
+        # Create continuous-time model to get the functions
+        model_ct = FlowMixerCT(n_in=n_in, name=name)
+
+        # For a stateless system, discrete-time model is the same as continuous-time
+        # Just need to wrap the functions with discrete-time naming conventions
+        t = cas.SX.sym("t")
+        xk = cas.SX.sym("xk", 0)  # Empty state vector
+        uk = cas.SX.sym("uk", model_ct.nu)
+
+        # State transition: empty state stays empty
+        F = cas.Function("F", [t, xk, uk], [xk], ["t", "xk", "uk"], ["xkp1"])
+
+        # Output function: same as continuous-time
+        yk = model_ct.h(t, xk, uk)
+        H = cas.Function("H", [t, xk, uk], [yk], ["t", "xk", "uk"], ["yk"])
+
+        super().__init__(
+            F=F,
+            H=H,
+            n=0,
+            nu=model_ct.nu,
+            ny=model_ct.ny,
+            dt=dt,
+            params=None,
+            name=name or model_ct.name,
+            input_names=model_ct.input_names,
+            state_names=[],
+            output_names=model_ct.output_names,
+        )
