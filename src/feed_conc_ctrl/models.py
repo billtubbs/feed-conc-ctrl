@@ -47,12 +47,13 @@ class MixingTankModelCT(StateSpaceModelCT):
         - Tunable accuracy via choice of dt
     """
 
-    def __init__(self, D=None, A=None):
+    def __init__(self, D=None, A=None, name="MixingTankModel"):
         """Initialize a mixing tank model.
 
         Args:
             D (float, optional): Tank diameter [m]
             A (float, optional): Tank cross-sectional area [m^2]
+            name (str, optional): Give the tank a name (default: "MixingTankModel").
 
         Note:
             Exactly one of D or A must be provided.
@@ -100,7 +101,7 @@ class MixingTankModelCT(StateSpaceModelCT):
             nu=3,
             ny=3,
             params=None,
-            name="MixingTankModel",
+            name=name,
             input_names=["v_dot_in", "conc_in", "v_dot_out"],
             state_names=["L", "m"],
             output_names=["L", "m", "conc_out"],
@@ -135,7 +136,7 @@ class MixingTankModelDT(StateSpaceModelDTFromCTRK4):
         y[2]: Concentration/density of outflow, conc_out [tons/m^3]
     """
 
-    def __init__(self, D=None, A=None, dt=0.25):
+    def __init__(self, D=None, A=None, dt=1, name=None):
         """Initialize a discrete-time mixing tank model.
 
         Args:
@@ -147,7 +148,7 @@ class MixingTankModelDT(StateSpaceModelDTFromCTRK4):
             Exactly one of D or A must be provided.
         """
         # Create continuous-time model
-        model_ct = MixingTankModelCT(D=D, A=A)
+        model_ct = MixingTankModelCT(D=D, A=A, name=name)
 
         # Initialize parent class with RK4 integration
         super().__init__(model_ct, dt)
