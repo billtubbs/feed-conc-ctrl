@@ -30,8 +30,8 @@ class TestMixingTankModelDT:
         assert model.A == np.pi * D**2 / 4
 
         # Check it has discrete-time functions
-        assert hasattr(model, 'F')
-        assert hasattr(model, 'H')
+        assert hasattr(model, "F")
+        assert hasattr(model, "H")
 
     def test_initialization_with_A(self):
         """Test that MixingTankModelDT initializes correctly with area"""
@@ -53,13 +53,15 @@ class TestMixingTankModelDT:
         assert model.A == A
 
         # Check it has discrete-time functions
-        assert hasattr(model, 'F')
-        assert hasattr(model, 'H')
+        assert hasattr(model, "F")
+        assert hasattr(model, "H")
 
     def test_initialization_validation(self):
         """Test initialization validation - must provide D or A, not both"""
         # Test providing neither
-        with pytest.raises(ValueError, match="Must provide either D .* or A .*"):
+        with pytest.raises(
+            ValueError, match="Must provide either D .* or A .*"
+        ):
             MixingTankModelDT(dt=0.25)
 
         # Test providing both

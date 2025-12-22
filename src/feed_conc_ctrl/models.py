@@ -3,7 +3,10 @@
 from itertools import chain
 import casadi as cas
 import numpy as np
-from cas_models.continuous_time.models import StateSpaceModelCT
+from cas_models.continuous_time.models import (
+    StateSpaceModelCT,
+    StateSpaceModelCTStaticNonlinearity,
+)
 from cas_models.discrete_time.models import (
     StateSpaceModelDT,
     StateSpaceModelDTFromCTRK4,
@@ -162,13 +165,16 @@ class MixingTankModelDT(StateSpaceModelDTFromCTRK4):
         self.A = model_ct.A
 
 
-class FlowMixerCT(StateSpaceModelCT):
+class FlowMixerCT(StateSpaceModelCTStaticNonlinearity):
     """
-    Continuous-time state-space model for a flow mixer with n inlet streams
-    and one outlet stream.
+    Continuous-time static nonlinearity model for a flow mixer with n inlet
+    streams and one outlet stream.
+
+    This is a stateless system (no dynamics) that simply combines inlet flows
+    and computes the weighted average concentration.
 
     States:
-        None
+        None (stateless system)
 
     Inputs:
         u[0]: Volumetric flowrate into mixer from stream 1, v_dot_1 [m^3/hr]
@@ -189,10 +195,14 @@ class FlowMixerCT(StateSpaceModelCT):
             n_in (int, optional): Number of inlet streams (default: 2)
             name (str, optional): Give the mixer a name (default: "FlowMixerModel").
         """
-
         if n_in < 2:
             raise ValueError("n_in must be at least 2")
 
+        # Dimensions
+        nu = 2 * n_in
+        ny = 2
+
+        # Names
         input_names = list(
             chain.from_iterable(
                 [f"v_dot_in_{i + 1}", f"conc_in_{i + 1}"] for i in range(n_in)
@@ -200,39 +210,24 @@ class FlowMixerCT(StateSpaceModelCT):
         )
         output_names = ["v_dot_out", "conc_out"]
 
-        # Dimensions
-        n = 0  # No states
-        nu = 2 * n_in
-        ny = 2
-
-        # Define symbolic variables
+        # Define symbolic variables for output function
         t = cas.SX.sym("t")
-        x = cas.SX.sym("x", n)
+        x = cas.SX.sym("x", 0)  # Empty state vector
         u = cas.SX.sym("u", nu)
-
-        # No dynamics
-        rhs = cas.vertcat()  # Empty
-
-        # State transition function (empty)
-        f = cas.Function("f", [t, x, u], [rhs], ["t", "x", "u"], ["rhs"])
 
         # Sum of all inlet flow rates
         v_dot_out = cas.sum1(u[0::2])
 
-        # Sum of flow rate * concentration
-        conc_out_numerator = cas.sum1(u[0::2] * u[1::2])
-
-        # Weighted average concentration
-        conc_out = conc_out_numerator / v_dot_out
+        # Weighted average concentration: sum(v_i * c_i) / sum(v_i)
+        conc_out = cas.sum1(u[0::2] * u[1::2]) / v_dot_out
 
         # Output function
         y = cas.vertcat(v_dot_out, conc_out)
         h = cas.Function("h", [t, x, u], [y], ["t", "x", "u"], ["y"])
 
+        # Initialize as static nonlinearity (f is created automatically)
         super().__init__(
-            f=f,
             h=h,
-            n=n,
             nu=nu,
             ny=ny,
             params=None,

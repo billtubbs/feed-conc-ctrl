@@ -26,13 +26,18 @@ class TestFlowMixerCT:
         assert model.name == "FlowMixerModel"
 
         # Check input/output names
-        assert model.input_names == ["v_dot_in_1", "conc_in_1", "v_dot_in_2", "conc_in_2"]
+        assert model.input_names == [
+            "v_dot_in_1",
+            "conc_in_1",
+            "v_dot_in_2",
+            "conc_in_2",
+        ]
         assert model.output_names == ["v_dot_out", "conc_out"]
         assert model.state_names == []
 
         # Check functions exist
-        assert hasattr(model, 'f')
-        assert hasattr(model, 'h')
+        assert hasattr(model, "f")
+        assert hasattr(model, "h")
 
     def test_initialization_with_n_in(self):
         """Test that FlowMixerCT initializes correctly with custom number of inlets"""
@@ -46,9 +51,12 @@ class TestFlowMixerCT:
 
         # Check input names
         expected_inputs = [
-            "v_dot_in_1", "conc_in_1",
-            "v_dot_in_2", "conc_in_2",
-            "v_dot_in_3", "conc_in_3"
+            "v_dot_in_1",
+            "conc_in_1",
+            "v_dot_in_2",
+            "conc_in_2",
+            "v_dot_in_3",
+            "conc_in_3",
         ]
         assert model.input_names == expected_inputs
 
@@ -79,7 +87,9 @@ class TestFlowMixerCT:
         rhs = model.f(t, x, u)
         rhs_array = np.array(rhs).flatten()
 
-        assert rhs_array.shape == (0,), "Stateless system should have no derivatives"
+        assert rhs_array.shape == (0,), (
+            "Stateless system should have no derivatives"
+        )
 
     def test_output_function_two_inlets(self):
         """Test the output function with 2 inlets"""
@@ -101,7 +111,9 @@ class TestFlowMixerCT:
 
         # Expected outputs
         v_dot_out_expected = v_dot_1 + v_dot_2  # 3.0
-        conc_out_expected = (v_dot_1 * conc_1 + v_dot_2 * conc_2) / v_dot_out_expected
+        conc_out_expected = (
+            v_dot_1 * conc_1 + v_dot_2 * conc_2
+        ) / v_dot_out_expected
         # = (1.0*0.5 + 2.0*0.75) / 3.0 = 2.0 / 3.0 ≈ 0.6667
 
         assert y_array.shape == (2,)
@@ -130,7 +142,9 @@ class TestFlowMixerCT:
 
         # Expected outputs
         v_dot_out_expected = v_dot_1 + v_dot_2 + v_dot_3  # 4.5
-        mass_flow_total = v_dot_1 * conc_1 + v_dot_2 * conc_2 + v_dot_3 * conc_3
+        mass_flow_total = (
+            v_dot_1 * conc_1 + v_dot_2 * conc_2 + v_dot_3 * conc_3
+        )
         # = 1.0*0.5 + 2.0*0.75 + 1.5*0.6 = 0.5 + 1.5 + 0.9 = 2.9
         conc_out_expected = mass_flow_total / v_dot_out_expected
         # = 2.9 / 4.5 ≈ 0.6444
@@ -197,13 +211,18 @@ class TestFlowMixerDT:
         assert model.dt == dt
 
         # Check input/output names
-        assert model.input_names == ["v_dot_in_1", "conc_in_1", "v_dot_in_2", "conc_in_2"]
+        assert model.input_names == [
+            "v_dot_in_1",
+            "conc_in_1",
+            "v_dot_in_2",
+            "conc_in_2",
+        ]
         assert model.output_names == ["v_dot_out", "conc_out"]
         assert model.state_names == []
 
         # Check functions exist
-        assert hasattr(model, 'F')  # Discrete-time state transition
-        assert hasattr(model, 'H')  # Discrete-time output
+        assert hasattr(model, "F")  # Discrete-time state transition
+        assert hasattr(model, "H")  # Discrete-time output
 
     def test_initialization_with_name(self):
         """Test that FlowMixerDT initializes with custom name"""
@@ -236,7 +255,9 @@ class TestFlowMixerDT:
         xkp1 = model.F(t, xk, uk)
         xkp1_array = np.array(xkp1).flatten()
 
-        assert xkp1_array.shape == (0,), "Stateless system state should remain empty"
+        assert xkp1_array.shape == (0,), (
+            "Stateless system state should remain empty"
+        )
 
     def test_output_function_two_inlets(self):
         """Test the output function with 2 inlets"""
@@ -259,7 +280,9 @@ class TestFlowMixerDT:
 
         # Expected outputs
         v_dot_out_expected = v_dot_1 + v_dot_2  # 3.0
-        conc_out_expected = (v_dot_1 * conc_1 + v_dot_2 * conc_2) / v_dot_out_expected
+        conc_out_expected = (
+            v_dot_1 * conc_1 + v_dot_2 * conc_2
+        ) / v_dot_out_expected
 
         assert yk_array.shape == (2,)
         assert np.allclose(yk_array[0], v_dot_out_expected, rtol=1e-10)
@@ -288,7 +311,9 @@ class TestFlowMixerDT:
 
         # Expected outputs
         v_dot_out_expected = v_dot_1 + v_dot_2 + v_dot_3  # 4.5
-        mass_flow_total = v_dot_1 * conc_1 + v_dot_2 * conc_2 + v_dot_3 * conc_3
+        mass_flow_total = (
+            v_dot_1 * conc_1 + v_dot_2 * conc_2 + v_dot_3 * conc_3
+        )
         conc_out_expected = mass_flow_total / v_dot_out_expected
 
         assert np.allclose(yk_array[0], v_dot_out_expected, rtol=1e-10)

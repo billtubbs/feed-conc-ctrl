@@ -7,6 +7,7 @@ when the flow rates are close but not equal.
 import numpy as np
 import matplotlib.pyplot as plt
 
+
 def analytical_solution_general(t, L0, m0, v_in, conc_in, v_out, A):
     """General analytical solution (v_in != v_out case)"""
     V0 = A * L0
@@ -17,11 +18,9 @@ def analytical_solution_general(t, L0, m0, v_in, conc_in, v_out, A):
 
     # Integrating factor: (V0 + (v_in - v_out)*t)^exponent
     L_t = L0 + (v_in - v_out) * t / A
-    m_t = (
-        conc_in * V_t
-        + (V0**exponent * m0 - conc_in * V0**(v_in / (v_in - v_out)))
-        * V_t**(-exponent)
-    )
+    m_t = conc_in * V_t + (
+        V0**exponent * m0 - conc_in * V0 ** (v_in / (v_in - v_out))
+    ) * V_t ** (-exponent)
 
     return L_t, m_t
 
@@ -57,10 +56,16 @@ def test_near_equal_flows():
         v_out = v_base - delta / 2
 
         try:
-            L_t, m_t = analytical_solution_general(t, L0, m0, v_in, conc_in, v_out, A)
-            results.append({'delta': delta, 'L': L_t, 'm': m_t, 'error': False})
+            L_t, m_t = analytical_solution_general(
+                t, L0, m0, v_in, conc_in, v_out, A
+            )
+            results.append(
+                {"delta": delta, "L": L_t, "m": m_t, "error": False}
+            )
         except (OverflowError, FloatingPointError) as e:
-            results.append({'delta': delta, 'L': np.nan, 'm': np.nan, 'error': True})
+            results.append(
+                {"delta": delta, "L": np.nan, "m": np.nan, "error": True}
+            )
 
     # Compare with equal flow solution
     L_eq, m_eq = analytical_solution_equal(t, L0, m0, v_base, conc_in, A)
@@ -69,40 +74,42 @@ def test_near_equal_flows():
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
 
     # Extract data
-    deltas_arr = np.array([r['delta'] for r in results])
-    m_vals = np.array([r['m'] for r in results])
+    deltas_arr = np.array([r["delta"] for r in results])
+    m_vals = np.array([r["m"] for r in results])
 
     # Plot mass values
-    ax1.semilogx(deltas_arr, m_vals, 'b.-', label='General solution')
-    ax1.axhline(m_eq, color='r', linestyle='--', label=f'Equal flow limit = {m_eq:.4f}')
-    ax1.set_xlabel('|v_in - v_out|')
-    ax1.set_ylabel('Mass m(t)')
-    ax1.set_title('Convergence of General Solution to Equal-Flow Case')
+    ax1.semilogx(deltas_arr, m_vals, "b.-", label="General solution")
+    ax1.axhline(
+        m_eq, color="r", linestyle="--", label=f"Equal flow limit = {m_eq:.4f}"
+    )
+    ax1.set_xlabel("|v_in - v_out|")
+    ax1.set_ylabel("Mass m(t)")
+    ax1.set_title("Convergence of General Solution to Equal-Flow Case")
     ax1.grid(True, alpha=0.3)
     ax1.legend()
 
     # Plot relative error
     rel_error = np.abs((m_vals - m_eq) / m_eq)
-    ax2.loglog(deltas_arr, rel_error, 'b.-')
-    ax2.set_xlabel('|v_in - v_out|')
-    ax2.set_ylabel('Relative Error')
-    ax2.set_title('Numerical Error vs Flow Difference')
+    ax2.loglog(deltas_arr, rel_error, "b.-")
+    ax2.set_xlabel("|v_in - v_out|")
+    ax2.set_ylabel("Relative Error")
+    ax2.set_title("Numerical Error vs Flow Difference")
     ax2.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plt.savefig('numerical_stability_analysis.png', dpi=150)
+    plt.savefig("numerical_stability_analysis.png", dpi=150)
     print("Plot saved as 'numerical_stability_analysis.png'")
 
     # Print key statistics
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("Numerical Stability Analysis")
-    print("="*70)
+    print("=" * 70)
     print(f"Equal flow solution: m = {m_eq:.6f}")
     print(f"\nFlow difference | Mass value | Rel. Error")
     print("-" * 50)
     for i, r in enumerate(results[::5]):  # Print every 5th result
-        if not r['error']:
-            err = abs((r['m'] - m_eq) / m_eq)
+        if not r["error"]:
+            err = abs((r["m"] - m_eq) / m_eq)
             print(f"{r['delta']:.2e}        | {r['m']:.6f}  | {err:.2e}")
         else:
             print(f"{r['delta']:.2e}        | ERROR      | ---")
@@ -124,14 +131,16 @@ def test_near_equal_flows():
         if err_at_threshold < 1e-6:
             print("✓ Threshold appears appropriate")
         else:
-            print(f"⚠ Consider increasing threshold to ~{deltas_arr[np.argmax(rel_error < 1e-6)]:.2e}")
+            print(
+                f"⚠ Consider increasing threshold to ~{deltas_arr[np.argmax(rel_error < 1e-6)]:.2e}"
+            )
 
 
 def compare_exponentiation_methods():
     """Compare different ways to compute the integrating factor"""
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("Exponentiation Methods Comparison")
-    print("="*70)
+    print("=" * 70)
 
     # Test case where exponent is very large
     base = 15.708  # A * L
@@ -139,7 +148,9 @@ def compare_exponentiation_methods():
     deltas = np.array([1e-1, 1e-2, 1e-3, 1e-4, 1e-5])
 
     print(f"\nBase = {base}, v_out = {v_out}")
-    print(f"\n{'Delta':<12} {'Exponent':<15} {'base^exp':<20} {'exp(exp*log(base))'}")
+    print(
+        f"\n{'Delta':<12} {'Exponent':<15} {'base^exp':<20} {'exp(exp*log(base))'}"
+    )
     print("-" * 70)
 
     for delta in deltas:
@@ -147,7 +158,7 @@ def compare_exponentiation_methods():
 
         # Method 1: Direct power (what's in the analytical solution)
         try:
-            result1 = base ** exponent
+            result1 = base**exponent
         except OverflowError:
             result1 = np.inf
 
@@ -157,9 +168,13 @@ def compare_exponentiation_methods():
         except OverflowError:
             result2 = np.inf
 
-        print(f"{delta:<12.2e} {exponent:<15.2e} {result1:<20.4e} {result2:.4e}")
+        print(
+            f"{delta:<12.2e} {exponent:<15.2e} {result1:<20.4e} {result2:.4e}"
+        )
 
-    print("\nNote: Both methods are mathematically equivalent and face the same")
+    print(
+        "\nNote: Both methods are mathematically equivalent and face the same"
+    )
     print("      numerical issues when the exponent becomes very large.")
 
 

@@ -33,8 +33,8 @@ class TestMixingTankModelCT:
         assert model.output_names == ["L", "m", "conc_out"]
 
         # Check functions exist
-        assert hasattr(model, 'f')
-        assert hasattr(model, 'h')
+        assert hasattr(model, "f")
+        assert hasattr(model, "h")
 
     def test_initialization_with_A(self):
         """Test that MixingTankModelCT initializes correctly with area"""
@@ -54,13 +54,15 @@ class TestMixingTankModelCT:
         assert model.A == A
 
         # Check functions exist
-        assert hasattr(model, 'f')
-        assert hasattr(model, 'h')
+        assert hasattr(model, "f")
+        assert hasattr(model, "h")
 
     def test_initialization_validation(self):
         """Test initialization validation - must provide D or A, not both"""
         # Test providing neither
-        with pytest.raises(ValueError, match="Must provide either D .* or A .*"):
+        with pytest.raises(
+            ValueError, match="Must provide either D .* or A .*"
+        ):
             MixingTankModelCT()
 
         # Test providing both
