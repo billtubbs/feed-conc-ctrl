@@ -13,7 +13,8 @@ class TestFlowMixerCT:
 
     def test_initialization_default(self):
         """Test that FlowMixerCT initializes correctly with default parameters"""
-        model = FlowMixerCT()
+        n_in = 2
+        model = FlowMixerCT(n_in)
 
         assert isinstance(model, StateSpaceModelCT)
 
@@ -42,7 +43,7 @@ class TestFlowMixerCT:
     def test_initialization_with_n_in(self):
         """Test that FlowMixerCT initializes correctly with custom number of inlets"""
         n_in = 3
-        model = FlowMixerCT(n_in=n_in)
+        model = FlowMixerCT(n_in)
 
         # Check model dimensions
         assert model.n == 0
@@ -63,21 +64,25 @@ class TestFlowMixerCT:
     def test_initialization_with_name(self):
         """Test that FlowMixerCT initializes with custom name"""
         custom_name = "MyMixer"
-        model = FlowMixerCT(name=custom_name)
+        n_in = 2
+        model = FlowMixerCT(n_in, name=custom_name)
 
         assert model.name == custom_name
 
     def test_initialization_validation(self):
         """Test initialization validation - n_in must be at least 2"""
         with pytest.raises(ValueError, match="n_in must be at least 2"):
-            FlowMixerCT(n_in=1)
+            n_in = 1
+            FlowMixerCT(n_in)
 
         with pytest.raises(ValueError, match="n_in must be at least 2"):
-            FlowMixerCT(n_in=0)
+            n_in = 0
+            FlowMixerCT(n_in)
 
     def test_ode_function_stateless(self):
         """Test the ODE function for stateless system (should return empty)"""
-        model = FlowMixerCT(n_in=2)
+        n_in = 2
+        model = FlowMixerCT(n_in)
 
         t = 0.0
         x = cas.vertcat()  # Empty state vector
@@ -93,7 +98,8 @@ class TestFlowMixerCT:
 
     def test_output_function_two_inlets(self):
         """Test the output function with 2 inlets"""
-        model = FlowMixerCT(n_in=2)
+        n_in = 2
+        model = FlowMixerCT(n_in)
 
         # Test inputs
         v_dot_1 = 1.0
@@ -122,7 +128,8 @@ class TestFlowMixerCT:
 
     def test_output_function_three_inlets(self):
         """Test the output function with 3 inlets"""
-        model = FlowMixerCT(n_in=3)
+        n_in = 3
+        model = FlowMixerCT(n_in)
 
         # Test inputs
         v_dot_1 = 1.0
@@ -154,7 +161,8 @@ class TestFlowMixerCT:
 
     def test_output_function_equal_concentrations(self):
         """Test that equal inlet concentrations give same outlet concentration"""
-        model = FlowMixerCT(n_in=2)
+        n_in = 2
+        model = FlowMixerCT(n_in)
 
         conc = 0.75  # Same concentration for both inlets
         v_dot_1 = 1.0
@@ -173,7 +181,8 @@ class TestFlowMixerCT:
 
     def test_output_function_zero_flow(self):
         """Test mixer with zero flow in one inlet"""
-        model = FlowMixerCT(n_in=2)
+        n_in = 2
+        model = FlowMixerCT(n_in)
 
         v_dot_1 = 0.0  # No flow from inlet 1
         conc_1 = 0.5
@@ -200,7 +209,7 @@ class TestFlowMixerDT:
         """Test that FlowMixerDT initializes correctly"""
         dt = 1.0
         n_in = 2
-        model = FlowMixerDT(dt, n_in=n_in)
+        model = FlowMixerDT(dt, n_in)
 
         assert isinstance(model, StateSpaceModelDT)
 
@@ -227,8 +236,9 @@ class TestFlowMixerDT:
     def test_initialization_with_name(self):
         """Test that FlowMixerDT initializes with custom name"""
         dt = 1.0
+        n_in = 2
         custom_name = "MyMixer"
-        model = FlowMixerDT(dt, n_in=2, name=custom_name)
+        model = FlowMixerDT(dt, n_in, name=custom_name)
 
         assert model.name == custom_name
 
@@ -237,15 +247,18 @@ class TestFlowMixerDT:
         dt = 1.0
 
         with pytest.raises(ValueError, match="n_in must be at least 2"):
-            FlowMixerDT(dt, n_in=1)
+            n_in = 1
+            FlowMixerDT(dt, n_in)
 
         with pytest.raises(ValueError, match="n_in must be at least 2"):
-            FlowMixerDT(dt, n_in=0)
+            n_in = 0
+            FlowMixerDT(dt, n_in)
 
     def test_state_transition_stateless(self):
         """Test state transition for stateless system (should do nothing)"""
         dt = 1.0
-        model = FlowMixerDT(dt, n_in=2)
+        n_in = 2
+        model = FlowMixerDT(dt, n_in)
 
         t = 0.0
         xk = []  # Empty state
@@ -262,7 +275,8 @@ class TestFlowMixerDT:
     def test_output_function_two_inlets(self):
         """Test the output function with 2 inlets"""
         dt = 1.0
-        model = FlowMixerDT(dt, n_in=2)
+        n_in = 2
+        model = FlowMixerDT(dt, n_in)
 
         # Test inputs
         v_dot_1 = 1.0
@@ -291,7 +305,8 @@ class TestFlowMixerDT:
     def test_output_function_three_inlets(self):
         """Test the output function with 3 inlets"""
         dt = 1.0
-        model = FlowMixerDT(dt, n_in=3)
+        n_in = 3
+        model = FlowMixerDT(dt, n_in)
 
         # Test inputs
         v_dot_1 = 1.0
@@ -322,7 +337,8 @@ class TestFlowMixerDT:
     def test_output_function_equal_concentrations(self):
         """Test that equal inlet concentrations give same outlet concentration"""
         dt = 1.0
-        model = FlowMixerDT(dt, n_in=2)
+        n_in = 2
+        model = FlowMixerDT(dt, n_in)
 
         conc = 0.75  # Same concentration for both inlets
         v_dot_1 = 1.0
@@ -342,7 +358,8 @@ class TestFlowMixerDT:
     def test_output_function_zero_flow(self):
         """Test mixer with zero flow in one inlet"""
         dt = 1.0
-        model = FlowMixerDT(dt, n_in=2)
+        n_in = 2
+        model = FlowMixerDT(dt, n_in)
 
         v_dot_1 = 0.0  # No flow from inlet 1
         conc_1 = 0.5
@@ -364,8 +381,11 @@ class TestFlowMixerDT:
     def test_dt_independence(self):
         """Test that outputs are independent of dt (stateless system)"""
         # Create two mixers with different time steps
-        model_dt1 = FlowMixerDT(dt=0.5, n_in=2)
-        model_dt2 = FlowMixerDT(dt=2.0, n_in=2)
+        dt = 0.5
+        n_in = 2
+        model_dt1 = FlowMixerDT(dt, n_in)
+        dt = 2.0
+        model_dt2 = FlowMixerDT(dt, n_in)
 
         # Same inputs
         t = 0.0
@@ -384,10 +404,10 @@ class TestFlowMixerDT:
 
     def test_consistency_with_continuous_time(self):
         """Test that FlowMixerDT outputs match FlowMixerCT (stateless)"""
-        dt = 1.0
         n_in = 2
-        model_ct = FlowMixerCT(n_in=n_in)
-        model_dt = FlowMixerDT(dt, n_in=n_in)
+        model_ct = FlowMixerCT(n_in)
+        dt = 1.0
+        model_dt = FlowMixerDT(dt, n_in)
 
         # Test inputs
         t = 0.0

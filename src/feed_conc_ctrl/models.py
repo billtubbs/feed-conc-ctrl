@@ -188,11 +188,11 @@ class FlowMixerCT(StateSpaceModelCTStaticNonlinearity):
         y[1]: Density of fluid exiting mixer, conc_out [tons/m^3]
     """
 
-    def __init__(self, n_in=2, name="FlowMixerModel"):
+    def __init__(self, n_in, name="FlowMixerModel"):
         """Initialize a flow mixer model.
 
         Args:
-            n_in (int, optional): Number of inlet streams (default: 2)
+            n_in (int): Number of inlet streams
             name (str, optional): Give the mixer a name (default: "FlowMixerModel").
         """
         if n_in < 2:
@@ -267,7 +267,7 @@ class FlowMixerDT(StateSpaceModelDT):
             name (str, optional): Name for the mixer
         """
         # Create continuous-time model to get the functions
-        model_ct = FlowMixerCT(n_in=n_in, name=name)
+        model_ct = FlowMixerCT(n_in, name=name)
 
         # For a stateless system, discrete-time model is the same as continuous-time
         # Just need to wrap the functions with discrete-time naming conventions
