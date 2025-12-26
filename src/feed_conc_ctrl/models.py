@@ -202,7 +202,6 @@ class FlowMixerCT(StateSpaceModelCTStaticNonlinearity):
         nu = 2 * n_in
         ny = 2
 
-        # Names
         input_names = list(
             chain.from_iterable(
                 [f"v_dot_in_{i + 1}", f"conc_in_{i + 1}"] for i in range(n_in)
@@ -294,4 +293,99 @@ class FlowMixerDT(StateSpaceModelDT):
             input_names=model_ct.input_names,
             state_names=[],
             output_names=model_ct.output_names,
+        )
+
+
+class RatioControlledFlowMixerCT(StateSpaceModelCTStaticNonlinearity):
+    """
+    Continuous-time static nonlinearity model for a flow mixer with n inlet
+    streams and one outlet stream.
+
+    This is a stateless system (no dynamics) that simply combines inlet flows
+    and computes the weighted average concentration.
+
+    States:
+        None (stateless system)
+
+    Inputs:
+        u[0]: Ratio of flowrate into mixer from stream 1, (0-1)
+        u[1]: Density of fluid entering mixer from stream 1, conc_1 [tons/m^3]
+        ...
+        u[n-2]: Volumetric flowrate out of mixer, v_dot_out [m^3/hr]
+        u[n-1]: Density of fluid entering mixer from stream n-1, conc_n-1 [tons/m^3]
+
+    Outputs:
+        y[0]: Volumetric flowrate into mixer from stream 1, v_dot_1 [m^3/hr]
+        y[1]: Volumetric flowrate into mixer from stream 2, v_dot_1 [m^3/hr]
+        ...
+        y[n-1]: Volumetric flowrate into mixer from stream n-1, v_dot_n-1 [m^3/hr]
+        y[n]: Density of fluid exiting mixer, conc_out [tons/m^3]
+    """
+
+    def __init__(self, n_in=2, name="FlowMixerModel"):
+        """Initialize a flow mixer model.
+
+        Args:
+            n_in (int, optional): Number of inlet streams (default: 2)
+            name (str, optional): Give the mixer a name (default: "FlowMixerModel").
+        """
+        if n_in < 2:
+            raise ValueError("n_in must be at least 2")
+
+        # Dimensions
+        nu = 2 * n_in
+        ny = n_in + 1
+
+        input_names = []
+        for i in range(n_in):
+            if i < n_in - 1:
+                input_names.append(f"r_{i + 1}")
+            else:
+                input_names.append("v_dot_out")
+            input_names.append(f"conc_in_{i + 1}")
+        assert len(input_names) == nu
+
+        output_names = []
+        for i in range(n_in):
+            output_names.append(f"v_dot_in_{i + 1}")
+        output_names.append("conc_out")
+        assert len(output_names) == ny
+
+        # Define symbolic variables for output function
+        t = cas.SX.sym("t")
+        x = cas.SX.sym("x", 0)  # Empty state vector
+        u = cas.SX.sym("u", nu)
+
+        # Inflow ratios for first nu - 1 inputs
+        r_in = u[0:-2:2]
+
+        # Add calculated final ratio
+        r_in = cas.vertcat(r_in, 1 - cas.sum1(r_in))
+
+        # Inflow concentrations
+        conc_in = u[1::2]
+
+        # Total outlet flow rate
+        v_dot_out = u[-2]
+
+        # Calculate inflow rates
+        v_dot_in = r_in * v_dot_out
+
+        # Weighted average concentration: sum(v_i * c_i) / sum(v_i)
+        conc_out = cas.sum1(v_dot_in * conc_in) / v_dot_out
+
+        # Output function
+        y = cas.vertcat(v_dot_in, conc_out)
+        h = cas.Function("h", [t, x, u], [y], ["t", "x", "u"], ["y"])
+
+        # Initialize as static nonlinearity (f is created automatically)
+        super().__init__(
+            h=h,
+            nu=nu,
+            ny=ny,
+            params=None,
+            name=name,
+            input_names=input_names,
+            state_names=[],
+            output_names=output_names,
         )
