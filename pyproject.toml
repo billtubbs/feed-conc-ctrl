@@ -27,7 +27,7 @@ classifiers = [
 dependencies = [
     "casadi==3.7.2",
     "casadi-models @ git+https://github.com/billtubbs/casadi-models.git",
-    "do_mpc-5.1.1",
+    "do_mpc==5.1.1",
     "ipykernel==7.1.0",
     "ipython==9.6.0",
     "matplotlib==3.10.7",
