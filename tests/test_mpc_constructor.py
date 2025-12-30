@@ -88,12 +88,10 @@ def mpc_params():
 
 @pytest.fixture
 def setpoints():
-    """Setpoints from notebook."""
+    """Setpoints from notebook (only for CVs with weights)."""
     return {
         'tank_1_L': 1.5,
-        'tank_1_conc_out': 2.0,
         'tank_2_L': 1.5,
-        'tank_2_conc_out': 2.0,
         'mixer_conc_out': 2.0,
     }
 

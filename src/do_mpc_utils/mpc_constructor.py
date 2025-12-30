@@ -1,5 +1,7 @@
 """Functions for constructing MPC controllers from CasADi system models."""
 
+import warnings
+
 import casadi as cas
 import do_mpc
 
@@ -177,6 +179,25 @@ def construct_mpc(
     if bounds is None:
         bounds = {}
 
+    # Validate cv_weights
+    for cv_name in cv_weights.keys():
+        if cv_name not in control_design["controlled_variables"]:
+            raise ValueError(
+                f"cv_weight '{cv_name}' is not in "
+                f"control_design['controlled_variables']: "
+                f"{control_design['controlled_variables']}"
+            )
+
+    # Warn if setpoints are specified without corresponding weights
+    for sp_name in setpoints.keys():
+        if sp_name not in cv_weights or cv_weights[sp_name] == 0:
+            warnings.warn(
+                f"Setpoint specified for '{sp_name}' but no "
+                f"corresponding cv_weight (or weight is 0). "
+                f"This setpoint will have no effect on the cost function.",
+                UserWarning
+            )
+
     # ========================================
     # 1. Create do-mpc model
     # ========================================
@@ -286,13 +307,13 @@ def construct_mpc(
     mterm = cas.DM(0)  # Terminal cost (not used)
     lterm = cas.DM(0)  # Stage cost
 
-    for cv_name in control_design["controlled_variables"]:
-        if cv_name in cv_weights and cv_weights[cv_name] > 0:
-            weight = cv_weights[cv_name]
-            sp = setpoints[cv_name]
-            cv_expr = outputs[system.output_names.index(cv_name)]
-            error = cv_expr - sp
-            lterm = lterm + weight * error ** 2
+    for cv_name, weight in cv_weights.items():
+        if weight == 0:
+            continue
+        sp = setpoints[cv_name]
+        cv_expr = outputs[system.output_names.index(cv_name)]
+        error = cv_expr - sp
+        lterm = lterm + weight * error ** 2
 
     mpc.set_objective(mterm=mterm, lterm=lterm)
 
