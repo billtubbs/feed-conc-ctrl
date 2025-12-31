@@ -179,12 +179,16 @@ def construct_mpc(
 
     # Validate cv_weights
     for cv_name in cv_weights.keys():
-        if cv_name not in control_design["controlled_variables"]:
-            raise ValueError(
-                f"cv_weight '{cv_name}' is not in "
-                f"control_design['controlled_variables']: "
-                f"{control_design['controlled_variables']}"
-            )
+        if (
+            cv_name in control_design["controlled_variables"]
+            or cv_name in control_design["manipulated_variables"]
+        ):
+            continue
+        raise ValueError(
+            f"cv_weight '{cv_name}' is not in "
+            f"control_design['controlled_variables'] or "
+            f"control_design['manipulated_variables']."
+        )
 
     # Warn if setpoints are specified without corresponding weights
     for sp_name in setpoints.keys():
@@ -309,7 +313,12 @@ def construct_mpc(
         if weight == 0:
             continue
         sp = setpoints[cv_name]
-        cv_expr = outputs[system.output_names.index(cv_name)]
+        try: 
+            output_idx = system.output_names.index(cv_name)
+            cv_expr = outputs[output_idx]
+        except ValueError:
+            # CV might be an MV (for MV tracking)
+            cv_expr = model.u[cv_name]
         error = cv_expr - sp
         lterm = lterm + weight * error**2
 

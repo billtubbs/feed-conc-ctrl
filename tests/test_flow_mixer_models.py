@@ -3,7 +3,7 @@
 import pytest
 import numpy as np
 import casadi as cas
-from feed_conc_ctrl.models import FlowMixerCT, FlowMixerDT
+from feed_conc_ctrl.models import FlowMixerCT, FlowMixerDT, RatioControlledFlowMixerCT
 from cas_models.continuous_time.models import StateSpaceModelCT
 from cas_models.discrete_time.models import StateSpaceModelDT
 
@@ -423,6 +423,297 @@ class TestFlowMixerDT:
 
         # For stateless system, CT and DT outputs should be identical
         assert np.allclose(y_ct_array, y_dt_array, rtol=1e-10)
+
+
+class TestRatioControlledFlowMixerCT:
+    """Test suite for RatioControlledFlowMixerCT class"""
+
+    def test_initialization_default(self):
+        """Test that RatioControlledFlowMixerCT initializes correctly with default parameters"""
+        n_in = 2
+        model = RatioControlledFlowMixerCT(n_in)
+
+        assert isinstance(model, StateSpaceModelCT)
+
+        # Check model dimensions (stateless system)
+        assert model.n == 0, "Should have 0 states (stateless system)"
+        assert model.nu == 4, "Should have 4 inputs (2 inlets x 2 properties)"
+        assert model.ny == 3, "Should have 3 outputs (2 inflows + concentration)"
+
+        # Check default name
+        assert model.name == "FlowMixerModel"
+
+        # Check input/output names
+        assert model.input_names == [
+            "r_1",
+            "conc_in_1",
+            "v_dot_out",
+            "conc_in_2",
+        ]
+        assert model.output_names == ["v_dot_in_1", "v_dot_in_2", "conc_out"]
+        assert model.state_names == []
+
+        # Check functions exist
+        assert hasattr(model, "f")
+        assert hasattr(model, "h")
+
+    def test_initialization_with_n_in(self):
+        """Test that RatioControlledFlowMixerCT initializes correctly with custom number of inlets"""
+        n_in = 3
+        model = RatioControlledFlowMixerCT(n_in)
+
+        # Check model dimensions
+        assert model.n == 0
+        assert model.nu == 2 * n_in  # 6 inputs
+        assert model.ny == n_in + 1  # 4 outputs (3 inflows + concentration)
+
+        # Check input names
+        expected_inputs = [
+            "r_1",
+            "conc_in_1",
+            "r_2",
+            "conc_in_2",
+            "v_dot_out",
+            "conc_in_3",
+        ]
+        assert model.input_names == expected_inputs
+
+        # Check output names
+        expected_outputs = ["v_dot_in_1", "v_dot_in_2", "v_dot_in_3", "conc_out"]
+        assert model.output_names == expected_outputs
+
+    def test_initialization_with_name(self):
+        """Test that RatioControlledFlowMixerCT initializes with custom name"""
+        custom_name = "MyRatioMixer"
+        n_in = 2
+        model = RatioControlledFlowMixerCT(n_in, name=custom_name)
+
+        assert model.name == custom_name
+
+    def test_initialization_validation(self):
+        """Test initialization validation - n_in must be at least 2"""
+        with pytest.raises(ValueError, match="n_in must be at least 2"):
+            n_in = 1
+            RatioControlledFlowMixerCT(n_in)
+
+        with pytest.raises(ValueError, match="n_in must be at least 2"):
+            n_in = 0
+            RatioControlledFlowMixerCT(n_in)
+
+    def test_str_representation_two_inlets(self):
+        """Test string representation of model with 2 inlets"""
+        mixer = RatioControlledFlowMixerCT(2)
+        assert str(mixer) == (
+            "RatioControlledFlowMixerCT("
+            "f=Function(f:(t,x[0],u[4])->(rhs[0]) SXFunction), "
+            "h=Function(h:(t,x[0],u[4])->(y[3]) SXFunction), "
+            "n=0, nu=4, ny=3, params={}, name='FlowMixerModel', "
+            "input_names=['r_1', 'conc_in_1', 'v_dot_out', 'conc_in_2'], "
+            "state_names=[], "
+            "output_names=['v_dot_in_1', 'v_dot_in_2', 'conc_out'])"
+        )
+
+    def test_str_representation_three_inlets(self):
+        """Test string representation of model with 3 inlets"""
+        mixer = RatioControlledFlowMixerCT(3)
+        assert str(mixer) == (
+            "RatioControlledFlowMixerCT("
+            "f=Function(f:(t,x[0],u[6])->(rhs[0]) SXFunction), "
+            "h=Function(h:(t,x[0],u[6])->(y[4]) SXFunction), "
+            "n=0, nu=6, ny=4, params={}, name='FlowMixerModel', "
+            "input_names=['r_1', 'conc_in_1', 'r_2', 'conc_in_2', 'v_dot_out', 'conc_in_3'], "
+            "state_names=[], "
+            "output_names=['v_dot_in_1', 'v_dot_in_2', 'v_dot_in_3', 'conc_out'])"
+        )
+
+    def test_ode_function_stateless(self):
+        """Test the ODE function for stateless system (should return empty)"""
+        n_in = 2
+        model = RatioControlledFlowMixerCT(n_in)
+
+        t = 0.0
+        x = cas.vertcat()  # Empty state vector
+        u = cas.vertcat(0.4, 0.5, 3.0, 0.75)  # Arbitrary inputs
+
+        # Compute derivatives (should be empty)
+        rhs = model.f(t, x, u)
+        rhs_array = np.array(rhs).flatten()
+
+        assert rhs_array.shape == (0,), (
+            "Stateless system should have no derivatives"
+        )
+
+    def test_output_function_two_inlets(self):
+        """Test the output function with 2 inlets"""
+        n_in = 2
+        model = RatioControlledFlowMixerCT(n_in)
+
+        # Test inputs
+        r_1 = 0.4  # 40% of total flow from inlet 1
+        conc_1 = 0.5
+        v_dot_out = 3.0
+        conc_2 = 0.75
+
+        t = 0.0
+        x = cas.vertcat()  # Empty state
+        u = cas.vertcat(r_1, conc_1, v_dot_out, conc_2)
+
+        # Compute outputs
+        y = model.h(t, x, u)
+        y_array = np.array(y).flatten()
+
+        # Expected outputs
+        # r_2 = 1 - r_1 = 0.6
+        v_dot_in_1_expected = r_1 * v_dot_out  # 0.4 * 3.0 = 1.2
+        v_dot_in_2_expected = (1 - r_1) * v_dot_out  # 0.6 * 3.0 = 1.8
+        conc_out_expected = (
+            v_dot_in_1_expected * conc_1 + v_dot_in_2_expected * conc_2
+        ) / v_dot_out
+        # = (1.2*0.5 + 1.8*0.75) / 3.0 = (0.6 + 1.35) / 3.0 = 0.65
+
+        assert y_array.shape == (3,)
+        assert np.allclose(y_array[0], v_dot_in_1_expected, rtol=1e-10)
+        assert np.allclose(y_array[1], v_dot_in_2_expected, rtol=1e-10)
+        assert np.allclose(y_array[2], conc_out_expected, rtol=1e-10)
+
+    def test_output_function_three_inlets(self):
+        """Test the output function with 3 inlets"""
+        n_in = 3
+        model = RatioControlledFlowMixerCT(n_in)
+
+        # Test inputs
+        r_1 = 0.2  # 20% from inlet 1
+        conc_1 = 0.5
+        r_2 = 0.3  # 30% from inlet 2
+        conc_2 = 0.75
+        v_dot_out = 5.0
+        conc_3 = 0.6
+
+        t = 0.0
+        x = cas.vertcat()
+        u = cas.vertcat(r_1, conc_1, r_2, conc_2, v_dot_out, conc_3)
+
+        # Compute outputs
+        y = model.h(t, x, u)
+        y_array = np.array(y).flatten()
+
+        # Expected outputs
+        # r_3 = 1 - r_1 - r_2 = 0.5
+        v_dot_in_1_expected = r_1 * v_dot_out  # 0.2 * 5.0 = 1.0
+        v_dot_in_2_expected = r_2 * v_dot_out  # 0.3 * 5.0 = 1.5
+        v_dot_in_3_expected = (1 - r_1 - r_2) * v_dot_out  # 0.5 * 5.0 = 2.5
+        mass_flow_total = (
+            v_dot_in_1_expected * conc_1 + v_dot_in_2_expected * conc_2 + v_dot_in_3_expected * conc_3
+        )
+        # = 1.0*0.5 + 1.5*0.75 + 2.5*0.6 = 0.5 + 1.125 + 1.5 = 3.125
+        conc_out_expected = mass_flow_total / v_dot_out
+        # = 3.125 / 5.0 = 0.625
+
+        assert y_array.shape == (4,)
+        assert np.allclose(y_array[0], v_dot_in_1_expected, rtol=1e-10)
+        assert np.allclose(y_array[1], v_dot_in_2_expected, rtol=1e-10)
+        assert np.allclose(y_array[2], v_dot_in_3_expected, rtol=1e-10)
+        assert np.allclose(y_array[3], conc_out_expected, rtol=1e-10)
+
+    def test_output_function_equal_concentrations(self):
+        """Test that equal inlet concentrations give same outlet concentration"""
+        n_in = 2
+        model = RatioControlledFlowMixerCT(n_in)
+
+        conc = 0.75  # Same concentration for both inlets
+        r_1 = 0.3
+        v_dot_out = 4.0
+
+        t = 0.0
+        x = cas.vertcat()
+        u = cas.vertcat(r_1, conc, v_dot_out, conc)
+
+        # Compute outputs
+        y = model.h(t, x, u)
+        y_array = np.array(y).flatten()
+
+        # When all concentrations are equal, output should be same concentration
+        assert np.allclose(y_array[2], conc, rtol=1e-10)
+
+    def test_output_function_zero_ratio(self):
+        """Test mixer with zero ratio (no flow from inlet 1)"""
+        n_in = 2
+        model = RatioControlledFlowMixerCT(n_in)
+
+        r_1 = 0.0  # No flow from inlet 1
+        conc_1 = 0.5
+        v_dot_out = 2.0
+        conc_2 = 0.75
+
+        t = 0.0
+        x = cas.vertcat()
+        u = cas.vertcat(r_1, conc_1, v_dot_out, conc_2)
+
+        # Compute outputs
+        y = model.h(t, x, u)
+        y_array = np.array(y).flatten()
+
+        # With r_1 = 0, all flow comes from inlet 2
+        assert np.allclose(y_array[0], 0.0, rtol=1e-10)  # v_dot_in_1 = 0
+        assert np.allclose(y_array[1], v_dot_out, rtol=1e-10)  # v_dot_in_2 = v_dot_out
+        assert np.allclose(y_array[2], conc_2, rtol=1e-10)  # conc_out = conc_2
+
+    def test_output_function_equal_ratios(self):
+        """Test mixer with equal flow ratios"""
+        n_in = 2
+        model = RatioControlledFlowMixerCT(n_in)
+
+        r_1 = 0.5  # 50/50 split
+        conc_1 = 0.4
+        v_dot_out = 6.0
+        conc_2 = 0.8
+
+        t = 0.0
+        x = cas.vertcat()
+        u = cas.vertcat(r_1, conc_1, v_dot_out, conc_2)
+
+        # Compute outputs
+        y = model.h(t, x, u)
+        y_array = np.array(y).flatten()
+
+        # Expected: both inlets contribute equally
+        v_dot_in_expected = v_dot_out / 2.0  # 3.0 each
+        conc_out_expected = (conc_1 + conc_2) / 2.0  # 0.6
+
+        assert np.allclose(y_array[0], v_dot_in_expected, rtol=1e-10)
+        assert np.allclose(y_array[1], v_dot_in_expected, rtol=1e-10)
+        assert np.allclose(y_array[2], conc_out_expected, rtol=1e-10)
+
+    def test_ratios_sum_to_one(self):
+        """Test that the implicit calculation ensures ratios sum to 1"""
+        n_in = 3
+        model = RatioControlledFlowMixerCT(n_in)
+
+        # Set r_1 and r_2; r_3 should be calculated as 1 - r_1 - r_2
+        r_1 = 0.25
+        r_2 = 0.35
+        # r_3 should be 0.4
+        v_dot_out = 10.0
+        conc_1 = 0.5
+        conc_2 = 0.6
+        conc_3 = 0.7
+
+        t = 0.0
+        x = cas.vertcat()
+        u = cas.vertcat(r_1, conc_1, r_2, conc_2, v_dot_out, conc_3)
+
+        # Compute outputs
+        y = model.h(t, x, u)
+        y_array = np.array(y).flatten()
+
+        # Verify flows sum to outlet flow
+        total_inflow = y_array[0] + y_array[1] + y_array[2]
+        assert np.allclose(total_inflow, v_dot_out, rtol=1e-10)
+
+        # Verify individual flows match ratios
+        assert np.allclose(y_array[0], r_1 * v_dot_out, rtol=1e-10)
+        assert np.allclose(y_array[1], r_2 * v_dot_out, rtol=1e-10)
+        assert np.allclose(y_array[2], (1 - r_1 - r_2) * v_dot_out, rtol=1e-10)
 
 
 if __name__ == "__main__":
