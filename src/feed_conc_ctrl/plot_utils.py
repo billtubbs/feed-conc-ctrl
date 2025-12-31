@@ -4,7 +4,11 @@ import matplotlib.pyplot as plt
 
 
 def make_tsplots(
-    data, plot_info, units=None, time_units='hours', time_label='Time ({time_units})'
+    data,
+    plot_info,
+    units=None,
+    time_units="hours",
+    time_label="Time ({time_units})",
 ):
     """Create time series plots with multiple subplots.
 
@@ -34,9 +38,11 @@ def make_tsplots(
         >>> fig, axes = make_tsplots(data, plot_info, units)
     """
     n_subplots = len(plot_info)
-    width, height = 8, 1 + 1.5*n_subplots
+    width, height = 8, 1 + 1.5 * n_subplots
 
-    fig, axes = plt.subplots(n_subplots, 1, sharex=True, figsize=(width, height))
+    fig, axes = plt.subplots(
+        n_subplots, 1, sharex=True, figsize=(width, height)
+    )
 
     # Handle case of single subplot (axes is not a list)
     if n_subplots == 1:

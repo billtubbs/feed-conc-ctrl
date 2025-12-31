@@ -30,7 +30,7 @@ def construct_mpc(
 
     control_design : dict
         Dictionary defining the control structure with keys:
-        - 'states': (optional) list of state names to include in MPC
+        - 'system_states': (optional) list of state names to include in MPC
                    model. If not provided, all states from
                    system.state_names are used.
         - 'manipulated_variables': list of MV names
@@ -69,7 +69,7 @@ def construct_mpc(
     bounds : dict, optional
         Dictionary of variable bounds with structure:
         {
-            'states': {
+            'system_states': {
                 'var_name': {'lower': value, 'upper': value},
                 ...
             },
@@ -126,7 +126,7 @@ def construct_mpc(
     ...         'tank_1_v_dot_in': {'lower': 0.0, 'upper': 2.0},
     ...         'tank_2_v_dot_in': {'lower': 0.0, 'upper': 2.0},
     ...     },
-    ...     'states': {
+    ...     'system_states': {
     ...         'tank_1_L': {'lower': 0.1, 'upper': 3.0},
     ...     },
     ...     'outputs': {
@@ -145,13 +145,13 @@ def construct_mpc(
     """
 
     # Get state names from control_design or use all system states
-    state_names = control_design.get('states', system.state_names)
+    state_names = control_design.get("system_states", system.state_names)
 
     # Validate control_design
     all_inputs = set(
-        control_design.get("manipulated_variables", []) +
-        control_design.get("unmeasured_disturbances", []) +
-        control_design.get("measured_disturbances", [])
+        control_design.get("manipulated_variables", [])
+        + control_design.get("unmeasured_disturbances", [])
+        + control_design.get("measured_disturbances", [])
     )
     if all_inputs != set(system.input_names):
         raise ValueError(
@@ -172,9 +172,7 @@ def construct_mpc(
 
     # Set default parameters for optional arguments
     if setpoints is None:
-        setpoints = {
-            cv: 0.0 for cv in control_design["controlled_variables"]
-        }
+        setpoints = {cv: 0.0 for cv in control_design["controlled_variables"]}
 
     if bounds is None:
         bounds = {}
@@ -195,30 +193,30 @@ def construct_mpc(
                 f"Setpoint specified for '{sp_name}' but no "
                 f"corresponding cv_weight (or weight is 0). "
                 f"This setpoint will have no effect on the cost function.",
-                UserWarning
+                UserWarning,
             )
 
     # ========================================
     # 1. Create do-mpc model
     # ========================================
-    model_type = 'continuous'
+    model_type = "continuous"
     model = do_mpc.model.Model(model_type)
 
     # Add manipulated variables (MVs)
     for name in control_design["manipulated_variables"]:
-        model.set_variable(var_type='_u', var_name=name, shape=(1, 1))
+        model.set_variable(var_type="_u", var_name=name, shape=(1, 1))
 
     # Add state variables (can be in any order specified by control_design)
     for name in state_names:
-        model.set_variable(var_type='_x', var_name=name, shape=(1, 1))
+        model.set_variable(var_type="_x", var_name=name, shape=(1, 1))
 
     # Augment model with additional states for unmeasured disturbances
     for name in control_design.get("unmeasured_disturbances", []):
-        model.set_variable(var_type='_x', var_name=name, shape=(1, 1))
+        model.set_variable(var_type="_x", var_name=name, shape=(1, 1))
 
     # Augment model with additional states for measured disturbances
     for name in control_design.get("measured_disturbances", []):
-        model.set_variable(var_type='_x', var_name=name, shape=(1, 1))
+        model.set_variable(var_type="_x", var_name=name, shape=(1, 1))
 
     # ========================================
     # 2. Build state and input vectors
@@ -231,11 +229,11 @@ def construct_mpc(
 
     inputs = []
     for name in system.input_names:
-        if name in control_design['manipulated_variables']:
+        if name in control_design["manipulated_variables"]:
             inputs.append(model.u[name])
-        elif name in control_design.get('measured_disturbances', []):
+        elif name in control_design.get("measured_disturbances", []):
             inputs.append(model.x[name])
-        elif name in control_design.get('unmeasured_disturbances', []):
+        elif name in control_design.get("unmeasured_disturbances", []):
             inputs.append(model.x[name])
     inputs = cas.vcat(inputs)
 
@@ -252,17 +250,17 @@ def construct_mpc(
         model.set_rhs(name, rhs[i])
 
     # Set righthand-side expressions for unmeasured disturbances
-    for name in control_design.get('unmeasured_disturbances', []):
+    for name in control_design.get("unmeasured_disturbances", []):
         model.set_rhs(
             name,
-            cas.DM(0)  # d_dot = 0 + process_noise (added by estimator)
+            cas.DM(0),  # d_dot = 0 + process_noise (added by estimator)
         )
 
     # Set righthand-side expressions for measured disturbances
-    for name in control_design.get('measured_disturbances', []):
+    for name in control_design.get("measured_disturbances", []):
         model.set_rhs(
             name,
-            cas.DM(0)  # d_dot = 0 (assumed constant or updated externally)
+            cas.DM(0),  # d_dot = 0 (assumed constant or updated externally)
         )
 
     # Define measured variables and output expressions
@@ -282,11 +280,11 @@ def construct_mpc(
     # Re-build input vector after model.setup() called
     inputs = []
     for name in system.input_names:
-        if name in control_design['manipulated_variables']:
+        if name in control_design["manipulated_variables"]:
             inputs.append(model.u[name])
-        elif name in control_design.get('measured_disturbances', []):
+        elif name in control_design.get("measured_disturbances", []):
             inputs.append(model.x[name])
-        elif name in control_design.get('unmeasured_disturbances', []):
+        elif name in control_design.get("unmeasured_disturbances", []):
             inputs.append(model.x[name])
     inputs = cas.vcat(inputs)
 
@@ -313,7 +311,7 @@ def construct_mpc(
         sp = setpoints[cv_name]
         cv_expr = outputs[system.output_names.index(cv_name)]
         error = cv_expr - sp
-        lterm = lterm + weight * error ** 2
+        lterm = lterm + weight * error**2
 
     mpc.set_objective(mterm=mterm, lterm=lterm)
 
@@ -321,7 +319,7 @@ def construct_mpc(
     if mv_weights is not None:
         rterm_dict = {
             name: mv_weights.get(name, 0.0)
-            for name in control_design['manipulated_variables']
+            for name in control_design["manipulated_variables"]
         }
         mpc.set_rterm(**rterm_dict)
 
@@ -330,41 +328,37 @@ def construct_mpc(
     # ========================================
 
     # Input constraints
-    if 'inputs' in bounds:
-        for var_name, var_bounds in bounds['inputs'].items():
-            if var_name in control_design['manipulated_variables']:
-                if 'lower' in var_bounds:
-                    mpc.bounds['lower', '_u', var_name] = var_bounds['lower']
-                if 'upper' in var_bounds:
-                    mpc.bounds['upper', '_u', var_name] = var_bounds['upper']
+    if "inputs" in bounds:
+        for var_name, var_bounds in bounds["inputs"].items():
+            if var_name in control_design["manipulated_variables"]:
+                if "lower" in var_bounds:
+                    mpc.bounds["lower", "_u", var_name] = var_bounds["lower"]
+                if "upper" in var_bounds:
+                    mpc.bounds["upper", "_u", var_name] = var_bounds["upper"]
 
     # State constraints
-    if 'states' in bounds:
-        for var_name, var_bounds in bounds['states'].items():
+    if "system_states" in bounds:
+        for var_name, var_bounds in bounds["system_states"].items():
             if var_name in system.state_names:
-                if 'lower' in var_bounds:
-                    mpc.bounds['lower', '_x', var_name] = var_bounds['lower']
-                if 'upper' in var_bounds:
-                    mpc.bounds['upper', '_x', var_name] = var_bounds['upper']
+                if "lower" in var_bounds:
+                    mpc.bounds["lower", "_x", var_name] = var_bounds["lower"]
+                if "upper" in var_bounds:
+                    mpc.bounds["upper", "_x", var_name] = var_bounds["upper"]
 
     # Disturbance bounds
-    if 'disturbances' in bounds:
-        for var_name, var_bounds in bounds['disturbances'].items():
-            unmeas_dists = control_design.get('unmeasured_disturbances', [])
-            meas_dists = control_design.get('measured_disturbances', [])
+    if "disturbances" in bounds:
+        for var_name, var_bounds in bounds["disturbances"].items():
+            unmeas_dists = control_design.get("unmeasured_disturbances", [])
+            meas_dists = control_design.get("measured_disturbances", [])
             if var_name in unmeas_dists or var_name in meas_dists:
-                if 'lower' in var_bounds:
-                    mpc.bounds['lower', '_x', var_name] = (
-                        var_bounds['lower']
-                    )
-                if 'upper' in var_bounds:
-                    mpc.bounds['upper', '_x', var_name] = (
-                        var_bounds['upper']
-                    )
+                if "lower" in var_bounds:
+                    mpc.bounds["lower", "_x", var_name] = var_bounds["lower"]
+                if "upper" in var_bounds:
+                    mpc.bounds["upper", "_x", var_name] = var_bounds["upper"]
 
     # Output constraints (using nonlinear constraints)
-    if 'outputs' in bounds:
-        for output_name, output_bounds in bounds['outputs'].items():
+    if "outputs" in bounds:
+        for output_name, output_bounds in bounds["outputs"].items():
             if output_name not in system.output_names:
                 raise ValueError(
                     f"Output '{output_name}' not found in "
@@ -376,19 +370,19 @@ def construct_mpc(
             output_expr = outputs[output_idx]
 
             # Add upper bound constraint: y <= upper
-            if 'upper' in output_bounds:
+            if "upper" in output_bounds:
                 mpc.set_nl_cons(
-                    f'{output_name}_upper',
+                    f"{output_name}_upper",
                     output_expr,
-                    ub=output_bounds['upper']
+                    ub=output_bounds["upper"],
                 )
 
             # Add lower bound constraint: -y <= -lower (i.e., y >= lower)
-            if 'lower' in output_bounds:
+            if "lower" in output_bounds:
                 mpc.set_nl_cons(
-                    f'{output_name}_lower',
+                    f"{output_name}_lower",
                     -output_expr,
-                    ub=-output_bounds['lower']
+                    ub=-output_bounds["lower"],
                 )
 
     # Setup MPC
