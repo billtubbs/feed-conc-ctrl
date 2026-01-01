@@ -55,12 +55,28 @@ def make_tsplots(
         axes = [axes]
 
     for ax, (title, sub_plot_info) in zip(axes, plot_info.items()):
-        for name, var_name in sub_plot_info.items():
-            data[var_name].plot(ax=ax, label=name)
+        # Accumulate units for all variables in this subplot
+        subplot_units = []
 
-        # Set y-axis label from units dict if provided
-        if units and var_name in units:
-            ax.set_ylabel(units[var_name])
+        for name, info in sub_plot_info.items():
+            var_name = info["var_name"]
+            kind = info.get("kind", "line")
+            if kind == "line":
+                data[var_name].plot(ax=ax, label=name)
+            elif kind == "step":
+                data[var_name].plot(ax=ax, label=name, drawstyle="steps-post")
+            else:
+                raise ValueError(f"Unsupported plot kind: {kind}")
+
+            # Collect units for this variable
+            if units and var_name in units:
+                unit = units[var_name]
+                if unit not in subplot_units:
+                    subplot_units.append(unit)
+
+        # Set y-axis label from accumulated units
+        if subplot_units:
+            ax.set_ylabel(", ".join(subplot_units))
 
         ax.grid(True)
 

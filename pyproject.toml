@@ -55,3 +55,10 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+filterwarnings = [
+    "ignore:The ONNX feature is not available:UserWarning:do_mpc.sysid",
+    "ignore:The opcua feature is not available:UserWarning:do_mpc.opcua",
+    "ignore:The approximateMPC feature requires PyTorch:UserWarning:do_mpc.approximateMPC",
+    "ignore:Setpoint specified for.*:UserWarning:do_mpc_utils.mpc_constructor",
+    "ignore:rterm was not set and defaults to zero:UserWarning:do_mpc.controller._mpc",
+]
