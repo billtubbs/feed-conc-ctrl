@@ -88,7 +88,9 @@ class MixingTankModelCT(StateSpaceModelCT):
         u = cas.SX.sym("u", 3)
 
         # Differential equations (ODE right-hand side)
+        # dL_dt = (v_dot_in - v_dot_out) / A
         dL_dt = (u[0] - u[2]) / A
+        # dm_dt = v_dot_in * conc_in - v_dot_out * m / (L * A)
         dm_dt = u[0] * u[1] - u[2] * x[1] / (x[0] * A)
         rhs = cas.vertcat(dL_dt, dm_dt)
 
