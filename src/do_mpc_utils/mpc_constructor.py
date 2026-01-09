@@ -6,6 +6,39 @@ import casadi as cas
 import do_mpc
 
 
+def generate_system_f_and_h_as_symbolic_vectors(model, control_design, system):
+    # Vector of symbolic state variables
+    states = cas.vcat([model.x[name] for name in system.state_names])
+
+    # Vector of symbolic input variables
+    inputs = []
+    for name in system.input_names:
+        if name in control_design["manipulated_variables"]:
+            inputs.append(model.u[name])
+        elif name in control_design.get("measured_disturbances", []):
+            inputs.append(model.x[name])
+        elif name in control_design.get("unmeasured_disturbances", []):
+            inputs.append(model.x[name])
+    inputs = cas.vcat(inputs)
+
+    # Generate expressions using CasADi system model functions
+    t = 0  # assume time invariant
+
+    # Righthand-side of ODE equations
+    rhs = system.f(t, states, inputs)
+
+    # Output variables
+    outputs = system.h(t, states, inputs)
+
+    return rhs, outputs
+
+
+def cost_function_setpoint_tracking(controlled_variables, setpoints, weights):
+    pred_errors = setpoints - controlled_variables
+    cost = cas.sum1(weights * cas.sumsqr(pred_errors))
+    return cost
+
+
 def construct_mpc(
     system,
     control_design,
@@ -14,6 +47,7 @@ def construct_mpc(
     setpoints=None,
     mv_weights=None,
     bounds=None,
+    model_type="continuous",
 ):
     """
     Construct a Do-MPC controller from a CasADi continuous-time system model.
@@ -31,19 +65,26 @@ def construct_mpc(
     control_design : dict
         Dictionary defining the control structure with keys:
         - 'system_states': (optional) list of state names to include in MPC
-                   model. If not provided, all states from
-                   system.state_names are used.
-        - 'manipulated_variables': list of MV names
-                   (subset of system.input_names)
-        - 'unmeasured_disturbances': list of disturbance names
-                   (subset of system.input_names)
-        - 'controlled_variables': list of CV names
-                   (subset of system.output_names)
-        - 'measured_disturbances': (optional) list of measured
-                   disturbance names
+            model. If not provided, all states from system.state_names are
+            used.
+        - 'measured_disturbances': (optional) list of measured disturbance
+            input names. Must be a subset of system.input_names.
+        - 'manipulated_variables': list of MV names. Must be a subset of
+            system.input_names.
+        - 'unmeasured_disturbances': (optional) list of unmeasured disturbance
+            input names. Must be a subset of system.input_names. Must be a
+            subset of system.output_names.
+        - 'measured_outputs': (optional) list of output variable names. Must
+            be a subset of system.output_names. If not provided, all system
+            outputs are assumed to be measured unless listed in
+            unmeasured_outputs.
+        - 'unmeasured_outputs': (optional) list of output variable names.
+            Must be a subset of system.output_names. If not provided, all
+            system outputs not listed in measured_outputs will be included
+            as unmeasured outputs.
 
     mpc_params : dict
-        MPC setup parameters with keys:
+        MPC setup parameters with keys, for example:
         - 't_step': time step for discretization (required)
         - 'n_horizon': prediction horizon steps (required)
         - 'n_robust': robust horizon (optional, default: 0)
@@ -51,14 +92,16 @@ def construct_mpc(
                    (optional, default: True)
 
     cv_weights : dict
-        Dictionary of tracking weights for controlled variables.
-        Keys are CV names, values are weights (higher = more important).
-        All controlled variables must have weights specified.
+        Dictionary of tracking error weights for controlled variables
+        (CVs). Keys are variable names which may be from system.input_names,
+        system.state_names, or system.output_names. Values are weights
+        applied to the tracking errors in the objective function.
 
     setpoints : dict, optional
         Dictionary of setpoints for controlled variables.
-        Keys are CV names, values are target values.
-        If None, all setpoints default to 0.
+        Keys are CV names. Values are either target values or the names
+        of time-varying parameters to be used as setpoints. If None, all
+        setpoints default to 0.
 
     mv_weights : dict, optional
         Dictionary of control effort weights for manipulated variables.
@@ -103,7 +146,6 @@ def construct_mpc(
     >>> control_design = {
     ...     "manipulated_variables": ['tank_1_v_dot_in', 'tank_2_v_dot_in'],
     ...     "unmeasured_disturbances": ['tank_1_conc_in', 'tank_2_conc_in'],
-    ...     "controlled_variables": ['tank_1_L', 'mixer_conc_out'],
     ... }
     >>>
     >>> mpc_params = {
@@ -144,22 +186,35 @@ def construct_mpc(
     ... )
     """
 
+    # ========================================
+    # 1. Validate control design parameters
+    # ========================================
+
     # Get state names from control_design or use all system states
     state_names = control_design.get("system_states", system.state_names)
 
     # Validate control_design
-    all_inputs = set(
+
+    # Check no duplicates
+    all_inputs = (
         control_design.get("manipulated_variables", [])
         + control_design.get("unmeasured_disturbances", [])
         + control_design.get("measured_disturbances", [])
     )
-    if all_inputs != set(system.input_names):
+    if len(set(all_inputs)) != len(all_inputs):
         raise ValueError(
-            f"Control design inputs {all_inputs} do not match "
-            f"system inputs {set(system.input_names)}"
+            "Duplicate variable name in manipulated_variables, "
+            "unmeasured_disturbances or measured_disturbances."
         )
 
-    # Validate state names - must be same set (can be reordered)
+    # Check all input variable names are valid
+    if set(all_inputs) != set(system.input_names):
+        raise ValueError(
+            f"Control design inputs {all_inputs} are not the "
+            f"same as the system inputs {system.input_names}"
+        )
+
+    # Validate state names
     if set(state_names) != set(system.state_names):
         raise ValueError(
             f"Control design states {set(state_names)} do not match "
@@ -170,40 +225,44 @@ def construct_mpc(
     # values for non-selected states and checking if resulting expressions
     # contain any free variables
 
-    # Set default parameters for optional arguments
-    if setpoints is None:
-        setpoints = {cv: 0.0 for cv in control_design["controlled_variables"]}
-
-    if bounds is None:
-        bounds = {}
-
-    # Validate cv_weights
+    # Validate controlled variable names
     for cv_name in cv_weights.keys():
         if (
-            cv_name in control_design["controlled_variables"]
-            or cv_name in control_design["manipulated_variables"]
+            cv_name in system.output_names
+            or cv_name in system.input_names
+            or cv_name in system.state_names
         ):
             continue
         raise ValueError(
-            f"cv_weight '{cv_name}' is not in "
-            f"control_design['controlled_variables'] or "
-            f"control_design['manipulated_variables']."
+            f"Controlled variable {cv_name!r} not in system input_names,"
+            "state_names or output_names."
         )
 
-    # Warn if setpoints are specified without corresponding weights
-    for sp_name in setpoints.keys():
-        if sp_name not in cv_weights or cv_weights[sp_name] == 0:
-            warnings.warn(
-                f"Setpoint specified for '{sp_name}' but no "
-                f"corresponding cv_weight (or weight is 0). "
-                f"This setpoint will have no effect on the cost function.",
-                UserWarning,
-            )
+    # Set defaults for other optional arguments
+    unmeasured_outputs = control_design.get("unmeasured_outputs", [])
+    measured_outputs = control_design.get("measured_outputs", None)
+    if measured_outputs is None:
+        measured_outputs = set(cv_weights.keys()) - set(unmeasured_outputs)
+    if bounds is None:
+        bounds = {}
+    if setpoints is None:
+        setpoints = {cv: 0.0 for cv in cv_weights.keys()}
+    else:
+        # Warn if setpoints are specified without corresponding weights
+        for sp_name, sp in setpoints.items():
+            if sp_name not in cv_weights:
+                if sp is None:
+                    continue
+                warnings.warn(
+                    f"Setpoint specified for '{sp_name}' but no corresponding "
+                    f"cv_weight. This setpoint will have no effect on the cost "
+                    f"function.",
+                    UserWarning,
+                )
 
     # ========================================
-    # 1. Create do-mpc model
+    # 2. Create do-mpc model with variables
     # ========================================
-    model_type = "continuous"
     model = do_mpc.model.Model(model_type)
 
     # Add manipulated variables (MVs)
@@ -222,38 +281,29 @@ def construct_mpc(
     for name in control_design.get("measured_disturbances", []):
         model.set_variable(var_type="_x", var_name=name, shape=(1, 1))
 
-    # ========================================
-    # 2. Build state and input vectors
-    # ========================================
-    t = 0  # assume time invariant
-
-    # Build state vector in system.state_names order
-    # (required by system.f and system.h)
-    states = cas.vcat([model.x[name] for name in system.state_names])
-
-    inputs = []
-    for name in system.input_names:
-        if name in control_design["manipulated_variables"]:
-            inputs.append(model.u[name])
-        elif name in control_design.get("measured_disturbances", []):
-            inputs.append(model.x[name])
-        elif name in control_design.get("unmeasured_disturbances", []):
-            inputs.append(model.x[name])
-    inputs = cas.vcat(inputs)
+    # Create time-varying parameters for time-varying setpoints
+    for cv_name, sp_value in setpoints.items():
+        # If value is a string, the setpoint is a time-varying parameter
+        if isinstance(sp_value, str):
+            model.set_variable(
+                var_type="_tvp", var_name=sp_value, shape=(1, 1)
+            )
 
     # ========================================
-    # 3. Set RHS expressions and measurements
+    # 3. Define ODE and output expressions
     # ========================================
 
-    # Generate expressions from CasADi model functions
-    rhs = system.f(t, states, inputs)
-    outputs = system.h(t, states, inputs)
+    # Build expressions for state and input vectors from CasADi system model
+    rhs, outputs = generate_system_f_and_h_as_symbolic_vectors(
+        model, control_design, system
+    )
 
     # Set righthand-side expressions for system states
     for i, name in enumerate(system.state_names):
         model.set_rhs(name, rhs[i])
 
     # Set righthand-side expressions for unmeasured disturbances
+    # TODO: Does this need to be generalised to any disturbance model?
     for name in control_design.get("unmeasured_disturbances", []):
         model.set_rhs(
             name,
@@ -261,70 +311,81 @@ def construct_mpc(
         )
 
     # Set righthand-side expressions for measured disturbances
+    # TODO: Replace this with TVP.
     for name in control_design.get("measured_disturbances", []):
         model.set_rhs(
             name,
             cas.DM(0),  # d_dot = 0 (assumed constant or updated externally)
         )
 
-    # Define measured variables and output expressions
-    for name in control_design["controlled_variables"]:
+    # Define measured output variables
+    for name in measured_outputs:
         i = system.output_names.index(name)
         model.set_meas(meas_name=name, expr=outputs[i])
+
+    # Define unmeasured output variables as auxiliary expressions
+    for name in unmeasured_outputs:
+        i = system.output_names.index(name)
+        model.set_expression(expr_name=name, expr=outputs[i])
 
     # Setup model
     model.setup()
 
     # ========================================
-    # 4. Rebuild expressions after model.setup()
-    # ========================================
-    # Re-build state vector after model.setup() called
-    states = cas.vcat([model.x[name] for name in system.state_names])
-
-    # Re-build input vector after model.setup() called
-    inputs = []
-    for name in system.input_names:
-        if name in control_design["manipulated_variables"]:
-            inputs.append(model.u[name])
-        elif name in control_design.get("measured_disturbances", []):
-            inputs.append(model.x[name])
-        elif name in control_design.get("unmeasured_disturbances", []):
-            inputs.append(model.x[name])
-    inputs = cas.vcat(inputs)
-
-    # Re-generate expressions from CasADi model functions
-    outputs = system.h(t, states, inputs)
-
-    # ========================================
-    # 5. Create MPC Controller
+    # 4. Create MPC Controller
     # ========================================
     mpc = do_mpc.controller.MPC(model)
     mpc.set_param(**mpc_params)
 
     # ========================================
-    # 6. Define MPC Objective Function
+    # 5. Define MPC Objective Function
     # ========================================
 
-    # Build objective: sum of squared tracking errors
-    mterm = cas.DM(0)  # Terminal cost (not used)
-    lterm = cas.DM(0)  # Stage cost
-
-    for cv_name, weight in cv_weights.items():
-        if weight == 0:
+    weights = []
+    expressions = []
+    sp_values = []
+    for name, weight in cv_weights.items():
+        if weight == 0.0:
             continue
-        sp = setpoints[cv_name]
-        try: 
-            output_idx = system.output_names.index(cv_name)
-            cv_expr = outputs[output_idx]
-        except ValueError:
-            # CV might be an MV (for MV tracking)
-            cv_expr = model.u[cv_name]
-        error = cv_expr - sp
-        lterm = lterm + weight * error**2
+        sp_value = setpoints.get(name, 0.0)
+        if isinstance(sp_value, str):
+            # Setpoint is a time-varying parameter
+            sp_value = model.tvp[sp_value]
+        if name in model.y.keys():
+            # CV is a measured output variable
+            expr = model.y[name]
+        elif name in model.u.keys():
+            # CV is an MV
+            expr = model.u[name]
+        elif name in model.x.keys():
+            # CV is a state variable
+            expr = model.x[name]
+        elif name in model.aux.keys():
+            # CV is an auxiliary variable (e.g. unmeasured output)
+            expr = model.aux[name]
+        else:
+            raise ValueError(
+                f"Controlled variable {name!r} not in model.y, model.u,"
+                "model.x, or model.aux."
+            )
+        weights.append(weight)
+        expressions.append(expr)
+        sp_values.append(sp_value)
+
+        print(f"{name = }, {expr = }, {weight = }, {sp_value = }")
+
+    # Sum-of-squared tracking errors
+    lterm = cost_function_setpoint_tracking(
+        cas.vcat(expressions), cas.vcat(sp_values), cas.vcat(weights)
+    )
+    print(f"{lterm = }")
+
+    # Terminal cost
+    mterm = cas.DM(0)
 
     mpc.set_objective(mterm=mterm, lterm=lterm)
 
-    # Penalize control effort (optional)
+    # Set control action penalties (optional)
     if mv_weights is not None:
         rterm_dict = {
             name: mv_weights.get(name, 0.0)
@@ -333,7 +394,7 @@ def construct_mpc(
         mpc.set_rterm(**rterm_dict)
 
     # ========================================
-    # 7. Set MPC Constraints
+    # 6. Set MPC Constraints
     # ========================================
 
     # Input constraints
@@ -393,6 +454,10 @@ def construct_mpc(
                     -output_expr,
                     ub=-output_bounds["lower"],
                 )
+
+    # ========================================
+    # 7. Finalize MPC setup
+    # ========================================
 
     # Setup MPC
     mpc.setup()
