@@ -573,6 +573,16 @@ def run_simulation():
     mpc.x0 = x0_init
     simulator.x0 = x0_init
 
+    # Prepare lists of names of inputs and measured outputs
+    # TODO: This is only necessary because model has a 'default' name
+    mv_names = list(model.u.keys())
+    mv_names.remove("default")
+    measured_output_names = list(model.y.keys())
+    measured_output_names.remove("default")
+    output_names = [
+        name.removesuffix("_meas") for name in measured_output_names
+    ]
+
     # Generate input data
     n_steps = 100
 
@@ -640,72 +650,36 @@ def run_simulation():
             mpc.set_initial_guess()
 
         # Compute control action
-        u0 = mpc.make_step(x0)
+        mpc.make_step(x0)
 
         # Save current inputs, states and outputs
+        u0 = {name: float(mpc.u0[name]) for name in mv_names}
+        x0 = {name: float(value) for name, value in dict(mpc.x0).items()}
+        y0 = {name: float(y0[i]) for i, name in enumerate(output_names)}
+        y0_m = {
+            name: float(y0_m[i])
+            for i, name in enumerate(measured_output_names)
+        }
         time_values.append(float(simulator.t0))
-        sim_results["true_outputs"].append(np.array(y0).reshape(-1))
-        sim_results["measured_outputs"].append(np.array(y0_m).reshape(-1))
-        x0 = cas.vcat(x0[x0.keys()])
-        sim_results["states"].append(np.array(x0).reshape(-1))
-        sim_results["inputs"].append(np.array(u0).reshape(-1))
+        sim_results["inputs"].append(u0)
+        sim_results["states"].append(x0)
+        sim_results["true_outputs"].append(y0)
+        sim_results["measured_outputs"].append(y0_m)
 
         # Simulate system
         w0 = cas.DM(W[k, :])
-        x_next, z_next = simulator_step(simulator, u0=u0, w0=w0)
+        x_next, z_next = simulator_step(simulator, u0=mpc.u0, w0=w0)
 
     print("Simulation complete!")
 
-    column_names = {
-        "inputs": [
-            "tank_2_v_dot_in",
-            "tank_3_v_dot_in",
-            "mixer_v_dot_in_1",
-            "mixer_v_dot_in_2",
-            "tank_4_v_dot_out",
-        ],
-        "states": [
-            "tank_1_L",
-            "tank_1_m",
-            "tank_2_L",
-            "tank_2_m",
-            "tank_3_L",
-            "tank_3_m",
-            "tank_4_L",
-            "tank_4_m",
-            "tank_1_v_dot_in",
-            "tank_1_conc_in",
-        ],
-        "true_outputs": [
-            "tank_1_L",
-            "tank_1_conc_out",
-            "tank_2_L",
-            "tank_2_conc_out",
-            "tank_3_L",
-            "tank_3_conc_out",
-            "tank_4_L",
-            "tank_4_conc_out",
-        ],
-        "measured_outputs": [
-            "tank_1_L_meas",
-            "tank_1_conc_out_meas",
-            "tank_2_L_meas",
-            "tank_2_conc_out_meas",
-            "tank_3_L_meas",
-            "tank_3_conc_out_meas",
-            "tank_4_L_meas",
-            "tank_4_conc_out_meas",
-        ],
-    }
-
     # Compile results into Pandas DataFrame
-    for name, data in sim_results.items():
-        sim_results[name] = pd.DataFrame(
-            np.stack(data),
-            index=pd.Index(time_values, name="t"),
-            columns=column_names[name],
-        )
-    sim_results = pd.concat(sim_results, axis=1)
+    sim_results = pd.concat(
+        {
+            name: pd.DataFrame(data, index=pd.Index(time_values, name="t"))
+            for name, data in sim_results.items()
+        },
+        axis=1,
+    )
 
     return sim_results
 
