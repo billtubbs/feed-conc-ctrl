@@ -61,7 +61,7 @@ def calc_mixer_outputs(v_dot_in_1, conc_in_1, v_dot_in_2, conc_in_2):
     return v_dot_out, conc_out
 
 
-def construct_4_tank_system_model(D=3.0):
+def construct_4_tank_system_model(D):
     """Construct Do-MPC model of mixing tank system
 
     D: Tank diameter (m)
@@ -252,13 +252,23 @@ def cost_function_tracking(controlled_variables, setpoints, weights):
     return cost
 
 
-def construct_mpc_controller(model):
-    # Create MPC controller
+def construct_mpc_controller(
+    model,
+    t_step,
+    setpoints,
+    cv_weights,
+    mv_weights,
+    v_dot_bounds,
+    tank_level_bounds,
+    tank_4_conc_out_bounds,
+    n_horizon=50,
+):
+    """Create MPC controller for 4-tank mixing system."""
     mpc = do_mpc.controller.MPC(model)
 
     mpc_params = {
-        "n_horizon": 50,  # Prediction horizon (hours)
-        "t_step": 1.0,  # Time step (hours)
+        "n_horizon": n_horizon,  # Prediction horizon (hours)
+        "t_step": t_step,  # Time step (hours)
         "n_robust": 0,  # No robust horizon for now
         "store_full_solution": True,
     }
@@ -273,22 +283,6 @@ def construct_mpc_controller(model):
         "tank_4_conc_out": model.aux["tank_4_conc_out"],
         "tank_4_v_dot_out": model.u["tank_4_v_dot_out"],
     }
-    setpoints = {
-        "tank_1_L": 2.0,
-        "tank_2_L": 2.0,
-        "tank_3_L": 2.0,
-        "tank_4_L": 2.0,
-        "tank_4_conc_out": 0.5,
-        "tank_4_v_dot_out": 1.0,
-    }
-    cv_weights = {
-        "tank_1_L": 0.1,
-        "tank_2_L": 0.1,
-        "tank_3_L": 0.1,
-        "tank_4_L": 0.1,
-        "tank_4_conc_out": 10.0,
-        "tank_4_v_dot_out": 5.0,
-    }
 
     # Sum-of-squared tracking errors
     lterm = cost_function_tracking(
@@ -296,45 +290,49 @@ def construct_mpc_controller(model):
         cas.DM([setpoints[name] for name in controlled_variables]),
         cas.DM([cv_weights[name] for name in controlled_variables]),
     )
-    mterm = cas.DM(0)  # Terminal cost
+    # Terminal cost
+    mterm = cas.DM(0)
     mpc.set_objective(mterm=mterm, lterm=lterm)
 
     # Set weights in control action cost term
-    mv_weights = {
-        "tank_2_v_dot_in": 1.0,
-        "tank_3_v_dot_in": 1.0,
-        "mixer_v_dot_in_1": 1.0,
-        "mixer_v_dot_in_2": 1.0,
-        "tank_4_v_dot_out": 5.0,
-    }
     mpc.set_rterm(**mv_weights)
 
-    # Input constraints
-    mpc.bounds["lower", "_u", "tank_2_v_dot_in"] = 0.0
-    mpc.bounds["upper", "_u", "tank_2_v_dot_in"] = 10.0
-    mpc.bounds["lower", "_u", "tank_3_v_dot_in"] = 0.0
-    mpc.bounds["upper", "_u", "tank_3_v_dot_in"] = 10.0
-    mpc.bounds["lower", "_u", "mixer_v_dot_in_1"] = 0.0
-    mpc.bounds["upper", "_u", "mixer_v_dot_in_1"] = 10.0
-    mpc.bounds["lower", "_u", "mixer_v_dot_in_2"] = 0.0
-    mpc.bounds["upper", "_u", "mixer_v_dot_in_2"] = 10.0
-    mpc.bounds["lower", "_u", "tank_4_v_dot_out"] = 0.0
-    mpc.bounds["upper", "_u", "tank_4_v_dot_out"] = 2.0
+    bounds = {
+        "inputs": {
+            "tank_2_v_dot_in": v_dot_bounds,
+            "tank_3_v_dot_in": v_dot_bounds,
+            "mixer_v_dot_in_1": v_dot_bounds,
+            "mixer_v_dot_in_2": v_dot_bounds,
+            "tank_4_v_dot_out": v_dot_bounds,
+        },
+        "states": {
+            "tank_1_L": tank_level_bounds,
+            "tank_2_L": tank_level_bounds,
+            "tank_3_L": tank_level_bounds,
+            "tank_4_L": tank_level_bounds,
+        },
+    }
 
-    # State constraints
-    mpc.bounds["lower", "_x", "tank_1_L"] = 0.1
-    mpc.bounds["upper", "_x", "tank_1_L"] = 4.0
-    mpc.bounds["lower", "_x", "tank_2_L"] = 0.1
-    mpc.bounds["upper", "_x", "tank_2_L"] = 4.0
-    mpc.bounds["lower", "_x", "tank_3_L"] = 0.1
-    mpc.bounds["upper", "_x", "tank_3_L"] = 4.0
-    mpc.bounds["lower", "_x", "tank_4_L"] = 0.1
-    mpc.bounds["upper", "_x", "tank_4_L"] = 4.0
+    # Apply lower and upper bounds to states
+    for state_name, b in bounds["states"].items():
+        mpc.bounds["lower", "_x", state_name] = b["lower"]
+        mpc.bounds["upper", "_x", state_name] = b["upper"]
 
-    # Output constraints
-    mpc.set_nl_cons("tank_4_conc_out_lb", model.aux["tank_4_conc_out"], ub=3.0)
+    # Apply lower and upper bounds to inputs
+    for input_name, b in bounds["inputs"].items():
+        mpc.bounds["lower", "_u", input_name] = b["lower"]
+        mpc.bounds["upper", "_u", input_name] = b["upper"]
+
+    # Apply lower and upper bounds to tank 4 output concentration
     mpc.set_nl_cons(
-        "tank_4_conc_out_ub", -model.aux["tank_4_conc_out"], ub=-0.0
+        "tank_4_conc_out_ub",
+        -model.aux["tank_4_conc_out"],
+        ub=-tank_4_conc_out_bounds["lower"],
+    )
+    mpc.set_nl_cons(
+        "tank_4_conc_out_lb",
+        model.aux["tank_4_conc_out"],
+        ub=tank_4_conc_out_bounds["upper"],
     )
 
     mpc.setup()
@@ -495,36 +493,75 @@ def run_simulation():
     rng = np.random.default_rng(seed)
 
     # Tank dimensions (same for all tanks)
-    D = 4  # diameter (m)
-    # Basis of design
-    # tank_height = 9  # height (m)
-    # feed_rate_nominal = 50  # t/h
-    # feed_density_nominal = 0.5  # solids density (w/w)
+    D = 4.0  # diameter (m)
+    tank_height = 10.0  # height (m)
+    tank_level_bounds = {"lower": 1.0, "upper": 10.0}
+
+    # Design basis
+    feed_rate_nominal = 35.0  # m^3/h
+    feed_conc_nominal = 0.5  # solids density (w/w)
 
     # Construct system model
     model = construct_4_tank_system_model(D=D)
 
     # Create MPC controller
-    mpc = construct_mpc_controller(model)
+    setpoints = {
+        "tank_1_L": tank_height * 0.75,
+        "tank_2_L": tank_height * 0.75,
+        "tank_3_L": tank_height * 0.75,
+        "tank_4_L": tank_height * 0.75,
+        "tank_4_conc_out": feed_conc_nominal,
+        "tank_4_v_dot_out": feed_rate_nominal,
+    }
+    cv_weights = {
+        "tank_1_L": 0.1,
+        "tank_2_L": 0.1,
+        "tank_3_L": 0.1,
+        "tank_4_L": 0.1,
+        "tank_4_conc_out": 1.0,
+        "tank_4_v_dot_out": 10.0,
+    }
+    mv_weights = {
+        "tank_2_v_dot_in": 0.1,
+        "tank_3_v_dot_in": 0.1,
+        "mixer_v_dot_in_1": 0.1,
+        "mixer_v_dot_in_2": 0.1,
+        "tank_4_v_dot_out": 1.0,
+    }
+    v_dot_bounds = {"lower": 0.0, "upper": 100.0}
+    tank_level_bounds = {"lower": tank_height * 0.1, "upper": tank_height}
+    tank_4_conc_out_bounds = {"lower": 0.0, "upper": 1.0}
+    t_step = 1.0
+
+    mpc = construct_mpc_controller(
+        model,
+        t_step,
+        setpoints,
+        cv_weights,
+        mv_weights,
+        v_dot_bounds,
+        tank_level_bounds,
+        tank_4_conc_out_bounds,
+    )
 
     # Create simulator
     simulator = do_mpc.simulator.Simulator(model)
-
-    t_step = mpc.settings.t_step
     simulator.set_param(t_step=t_step)
     simulator.setup()
 
+    mid_level = sum(tank_level_bounds.values()) / 2
+
     x0_init = {
-        "tank_1_L": 1.0,
-        "tank_1_m": np.pi * (D / 2) ** 2 * 2.0 * 1.0,
-        "tank_2_L": 1.0,
-        "tank_2_m": np.pi * (D / 2) ** 2 * 2.0 * 1.0,
-        "tank_3_L": 1.0,
-        "tank_3_m": np.pi * (D / 2) ** 2 * 2.0 * 1.0,
-        "tank_4_L": 1.0,
-        "tank_4_m": np.pi * (D / 2) ** 2 * 2.0 * 1.0,
-        "tank_1_v_dot_in": 4.0,
-        "tank_1_conc_in": 2.0,
+        "tank_1_L": mid_level,
+        "tank_1_m": np.pi * D**2 / 4 * mid_level * feed_conc_nominal,
+        "tank_2_L": mid_level,
+        "tank_2_m": np.pi * D**2 / 4 * mid_level * feed_conc_nominal,
+        "tank_3_L": mid_level,
+        "tank_3_m": np.pi * D**2 / 4 * mid_level * feed_conc_nominal,
+        "tank_4_L": mid_level,
+        "tank_4_m": np.pi * D**2 / 4 * mid_level * feed_conc_nominal,
+        "tank_1_v_dot_in": feed_rate_nominal,
+        "tank_1_conc_in": feed_conc_nominal,
     }
 
     assert list(x0_init.keys()) == model.x.keys()
@@ -546,17 +583,17 @@ def run_simulation():
     tank_1_v_dot_in = generate_random_steps_beta(
         n_steps,
         step_length,
-        y_base=0.0,
-        y_min=0.75,
-        y_max=1.25,
+        y_base=feed_rate_nominal,
+        y_min=0.5 * feed_rate_nominal,
+        y_max=1.5 * feed_rate_nominal,
         seed=10,
     )
     tank_1_conc_in = generate_random_steps_beta(
         n_steps,
         step_length,
-        y_base=0.0,
-        y_min=0.2,
-        y_max=0.8,
+        y_base=feed_conc_nominal,
+        y_min=0.1 * feed_conc_nominal,
+        y_max=1.9 * feed_conc_nominal,
         seed=10,
     )
 
@@ -581,7 +618,8 @@ def run_simulation():
         # Generate simulated measurements
         # Note: simulator has no direct transmission from u(k) to y(k).
         v0 = cas.DM(V[k, :])
-        y0_m = get_measurements(simulator, v0=v0)
+        y0 = get_measurements(simulator, v0=np.zeros((model.n_y, 1)))
+        y0_m = y0 + v0
 
         # For controller testing, use true state from simulator
         x0 = simulator.x0
@@ -596,10 +634,11 @@ def run_simulation():
         simulator.x0["tank_1_conc_in"] = tank_1_conc_in[k]
 
         # Save current inputs, states and outputs
-        time_values.append(simulator.t0)
-        sim_results["Y_m"].append(np.array(y0_m).reshape(-1))
-        sim_results["X"].append(np.array(x0).reshape(-1))
-        sim_results["U"].append(np.array(u0).reshape(-1))
+        time_values.append(float(simulator.t0))
+        sim_results["true_outputs"].append(np.array(y0).reshape(-1))
+        sim_results["measured_outputs"].append(np.array(y0_m).reshape(-1))
+        sim_results["states"].append(np.array(x0).reshape(-1))
+        sim_results["inputs"].append(np.array(u0).reshape(-1))
 
         # Simulate system
         w0 = cas.DM(W[k, :])
@@ -607,10 +646,54 @@ def run_simulation():
 
     print("Simulation complete!")
 
+    column_names = {
+        "inputs": [
+            "tank_2_v_dot_in",
+            "tank_3_v_dot_in",
+            "mixer_v_dot_in_1",
+            "mixer_v_dot_in_2",
+            "tank_4_v_dot_out",
+        ],
+        "states": [
+            "tank_1_L",
+            "tank_1_m",
+            "tank_2_L",
+            "tank_2_m",
+            "tank_3_L",
+            "tank_3_m",
+            "tank_4_L",
+            "tank_4_m",
+            "tank_1_v_dot_in",
+            "tank_1_conc_in",
+        ],
+        "true_outputs": [
+            "tank_1_L",
+            "tank_1_conc_out",
+            "tank_2_L",
+            "tank_2_conc_out",
+            "tank_3_L",
+            "tank_3_conc_out",
+            "tank_4_L",
+            "tank_4_conc_out",
+        ],
+        "measured_outputs": [
+            "tank_1_L_meas",
+            "tank_1_conc_out_meas",
+            "tank_2_L_meas",
+            "tank_2_conc_out_meas",
+            "tank_3_L_meas",
+            "tank_3_conc_out_meas",
+            "tank_4_L_meas",
+            "tank_4_conc_out_meas",
+        ],
+    }
+
     # Compile results into Pandas DataFrame
     for name, data in sim_results.items():
         sim_results[name] = pd.DataFrame(
-            np.stack(data), index=pd.Index(time_values, name="t")
+            np.stack(data),
+            index=pd.Index(time_values, name="t"),
+            columns=column_names[name],
         )
     sim_results = pd.concat(sim_results, axis=1)
 
@@ -621,7 +704,7 @@ if __name__ == "__main__":
     sim_name = Path(__file__).stem
     results_dir = Path("results") / sim_name
     plot_dir = results_dir / "plots"
-    results_dir.mkdir(exist_ok=True)
+    results_dir.mkdir(exist_ok=True, parents=True)
     plot_dir.mkdir(exist_ok=True)
 
     sim_results = run_simulation()
