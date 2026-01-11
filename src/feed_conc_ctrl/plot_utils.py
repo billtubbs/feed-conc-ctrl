@@ -10,6 +10,7 @@ def make_tsplots(
     time_units="hours",
     time_label="Time ({time_units})",
     legend_loc="best",
+    **kwargs,
 ):
     """Create time series plots with multiple subplots.
 
@@ -62,9 +63,9 @@ def make_tsplots(
             var_name = info["var_name"]
             kind = info.get("kind", "line")
             if kind == "line":
-                data[var_name].plot(ax=ax, label=name)
+                data[var_name].plot(ax=ax, label=name, **kwargs)
             elif kind == "step":
-                data[var_name].plot(ax=ax, label=name, drawstyle="steps-post")
+                data[var_name].plot(ax=ax, label=name, drawstyle="steps-post", **kwargs)
             else:
                 raise ValueError(f"Unsupported plot kind: {kind}")
 

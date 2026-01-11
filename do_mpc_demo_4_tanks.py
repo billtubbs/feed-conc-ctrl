@@ -518,7 +518,7 @@ def run_simulation():
         "tank_2_L": 0.1,
         "tank_3_L": 0.1,
         "tank_4_L": 0.1,
-        "tank_4_conc_out": 1.0,
+        "tank_4_conc_out": 50.0,
         "tank_4_v_dot_out": 10.0,
     }
     mv_weights = {
@@ -526,7 +526,7 @@ def run_simulation():
         "tank_3_v_dot_in": 0.1,
         "mixer_v_dot_in_1": 0.1,
         "mixer_v_dot_in_2": 0.1,
-        "tank_4_v_dot_out": 1.0,
+        "tank_4_v_dot_out": 0.1,
     }
     v_dot_bounds = {"lower": 0.0, "upper": 100.0}
     tank_level_bounds = {"lower": tank_height * 0.1, "upper": tank_height}
@@ -549,17 +549,18 @@ def run_simulation():
     simulator.set_param(t_step=t_step)
     simulator.setup()
 
-    mid_level = sum(tank_level_bounds.values()) / 2
+    tank_level = sum(tank_level_bounds.values()) / 2
+    tank_level = tank_height * 0.75
 
     x0_init = {
-        "tank_1_L": mid_level,
-        "tank_1_m": np.pi * D**2 / 4 * mid_level * feed_conc_nominal,
-        "tank_2_L": mid_level,
-        "tank_2_m": np.pi * D**2 / 4 * mid_level * feed_conc_nominal,
-        "tank_3_L": mid_level,
-        "tank_3_m": np.pi * D**2 / 4 * mid_level * feed_conc_nominal,
-        "tank_4_L": mid_level,
-        "tank_4_m": np.pi * D**2 / 4 * mid_level * feed_conc_nominal,
+        "tank_1_L": tank_level,
+        "tank_1_m": np.pi * D**2 / 4 * tank_level * feed_conc_nominal,
+        "tank_2_L": tank_level,
+        "tank_2_m": np.pi * D**2 / 4 * tank_level * feed_conc_nominal,
+        "tank_3_L": tank_level,
+        "tank_3_m": np.pi * D**2 / 4 * tank_level * feed_conc_nominal,
+        "tank_4_L": tank_level,
+        "tank_4_m": np.pi * D**2 / 4 * tank_level * feed_conc_nominal,
         "tank_1_v_dot_in": feed_rate_nominal,
         "tank_1_conc_in": feed_conc_nominal,
     }
@@ -572,9 +573,6 @@ def run_simulation():
     mpc.x0 = x0_init
     simulator.x0 = x0_init
 
-    # Set initial guess for MPC
-    mpc.set_initial_guess()
-
     # Generate input data
     n_steps = 100
 
@@ -584,16 +582,16 @@ def run_simulation():
         n_steps,
         step_length,
         y_base=feed_rate_nominal,
-        y_min=0.5 * feed_rate_nominal,
-        y_max=1.5 * feed_rate_nominal,
+        y_min=1.0 * feed_rate_nominal,
+        y_max=1.0 * feed_rate_nominal,
         seed=10,
     )
     tank_1_conc_in = generate_random_steps_beta(
         n_steps,
         step_length,
         y_base=feed_conc_nominal,
-        y_min=0.1 * feed_conc_nominal,
-        y_max=1.9 * feed_conc_nominal,
+        y_min=1.0 * feed_conc_nominal,
+        y_max=1.0 * feed_conc_nominal,
         seed=10,
     )
 
@@ -615,6 +613,10 @@ def run_simulation():
 
     x0 = x0_init
     for k in range(n_steps):
+        # Set disturbance inputs in simulator
+        simulator.x0["tank_1_v_dot_in"] = tank_1_v_dot_in[k]
+        simulator.x0["tank_1_conc_in"] = tank_1_conc_in[k]
+
         # Generate simulated measurements
         # Note: simulator has no direct transmission from u(k) to y(k).
         v0 = cas.DM(V[k, :])
@@ -623,20 +625,28 @@ def run_simulation():
 
         # For controller testing, use true state from simulator
         x0 = simulator.x0
-        x0 = cas.vcat(x0[x0.keys()])
         # x0 = estimator.update(y0_m)
+
+        if k == 0:
+            # Set initial guess for MPC
+            mpc.x0 = x0
+            mpc.u0 = cas.vertcat(
+                feed_rate_nominal / 2,
+                feed_rate_nominal / 2,
+                feed_rate_nominal / 2,
+                feed_rate_nominal / 2,
+                feed_rate_nominal,
+            )
+            mpc.set_initial_guess()
 
         # Compute control action
         u0 = mpc.make_step(x0)
-
-        # Set disturbance inputs in simulator
-        simulator.x0["tank_1_v_dot_in"] = tank_1_v_dot_in[k]
-        simulator.x0["tank_1_conc_in"] = tank_1_conc_in[k]
 
         # Save current inputs, states and outputs
         time_values.append(float(simulator.t0))
         sim_results["true_outputs"].append(np.array(y0).reshape(-1))
         sim_results["measured_outputs"].append(np.array(y0_m).reshape(-1))
+        x0 = cas.vcat(x0[x0.keys()])
         sim_results["states"].append(np.array(x0).reshape(-1))
         sim_results["inputs"].append(np.array(u0).reshape(-1))
 
