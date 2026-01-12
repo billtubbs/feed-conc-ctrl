@@ -386,8 +386,8 @@ def generate_random_steps_beta(
 
 def create_setpoint_tvp_function(
     mpc_or_sim,
-    setpoints, 
-    forecast_data=None, 
+    setpoints,
+    forecast_data=None,
     t_step=1.0,
     n_horizon=None,
 ):
@@ -417,10 +417,10 @@ def create_setpoint_tvp_function(
 
     # Initialize TVP template from mpc or simulator object
     tvp_template = mpc_or_sim.get_tvp_template()
-    
+
     # Get horizon length
     if n_horizon is None:
-        if hasattr(mpc_or_sim, 'settings'):
+        if hasattr(mpc_or_sim, "settings"):
             n_horizon = mpc_or_sim.settings.n_horizon
         else:
             n_horizon = 1  # For simulator, just one step
@@ -459,16 +459,16 @@ def create_setpoint_tvp_function(
             # Fill in values for each step in the prediction horizon
             for k in range(n_horizon):
                 if config["type"] == "constant":
-                    tvp_template['_tvp', k, tvp_name, 0] = config["value"]
+                    tvp_template["_tvp", k, tvp_name, 0] = config["value"]
                 else:  # forecast
                     # Calculate the time index for this prediction step
                     t_pred = t_now + k * t_step
                     idx = int(np.floor(t_pred / t_step))
                     data = config["data"]
-                    
+
                     # Clamp to valid range (hold last value if beyond forecast)
                     idx = np.clip(idx, 0, len(data) - 1)
-                    tvp_template['_tvp', k, tvp_name, 0] = data[idx]
+                    tvp_template["_tvp", k, tvp_name, 0] = data[idx]
 
         return tvp_template
 
@@ -481,19 +481,19 @@ def create_simulator_tvp_function(simulator):
     For simulation, we don't need setpoint forecasts - the simulator
     just runs the plant model. Returns a function that provides
     zero/dummy values for all TVPs.
-    
+
     Parameters
     ----------
     simulator : do_mpc.simulator.Simulator
         The simulator object
     """
     tvp_template = simulator.get_tvp_template()
-    
+
     # Get list of TVP variable names
     tvp_names = list(simulator.model._tvp.keys())
     # Remove 'default' if it exists
-    if 'default' in tvp_names:
-        tvp_names.remove('default')
+    if "default" in tvp_names:
+        tvp_names.remove("default")
 
     def tvp_function(t_now):
         # Simulator uses flat indexing: just variable name
@@ -601,12 +601,12 @@ def run_simulation():
     rng = np.random.default_rng(seed)
 
     # Tank dimensions (same for all tanks)
-    D = 4.0  # diameter (m)
+    D = 3.0  # diameter (m)
     tank_height = 10.0  # height (m)
-    tank_level_bounds = {"lower": 1.0, "upper": 10.0}
+    tank_level_bounds = {"lower": 1.0, "upper": tank_height}
 
     # Design basis
-    feed_rate_nominal = 2.0  # m^3/h
+    feed_rate_nominal = 100.0  # m^3/h
     feed_conc_nominal = 0.5  # solids density (w/w)
 
     # Construct system model
@@ -616,27 +616,25 @@ def run_simulation():
     n_steps = 100
     t_step = 1.0
     time = np.arange(n_steps) * t_step
-    
+
     # Create time-varying forecasts
-    # Example: Daily variation in concentration setpoint
-    conc_setpoint_forecast = (
-        feed_conc_nominal + 
-        0.05 * np.sin(2 * np.pi * time / 24)  # ±0.05 around nominal
-    )
-    
+    conc_setpoint_forecast = np.full(n_steps, feed_conc_nominal)
+    # conc_setpoint_forecast[25:50] = feed_conc_nominal * 1.2
+    # conc_setpoint_forecast[50:75] = feed_conc_nominal * 0.8
+
     # Example: Step changes in flow rate setpoint
     flow_setpoint_forecast = np.full(n_steps, feed_rate_nominal)
-    flow_setpoint_forecast[30:60] = feed_rate_nominal * 1.2
-    flow_setpoint_forecast[60:] = feed_rate_nominal * 0.9
-    
+    # flow_setpoint_forecast[25:50] = feed_rate_nominal * 1.2
+    # flow_setpoint_forecast[50:75] = feed_rate_nominal * 0.8
+
     # Define setpoints with mix of constant and time-varying
     setpoints = {
-        "tank_1_L": tank_height * 0.75,  # Constant
-        "tank_2_L": tank_height * 0.75,  # Constant
-        "tank_3_L": tank_height * 0.75,  # Constant
-        "tank_4_L": tank_height * 0.75,  # Constant
-        "tank_4_conc_out": "conc_sp",    # Time-varying
-        "tank_4_v_dot_out": "flow_sp",   # Time-varying
+        "tank_1_L": tank_height * 0.8,  # Constant
+        "tank_2_L": tank_height * 0.7,  # Constant
+        "tank_3_L": tank_height * 0.6,  # Constant
+        "tank_4_L": tank_height * 0.5,  # Constant
+        "tank_4_conc_out": "conc_sp",  # Time-varying
+        "tank_4_v_dot_out": "flow_sp",  # Time-varying
     }
 
     forecast_data = {
@@ -645,21 +643,21 @@ def run_simulation():
     }
 
     cv_weights = {
-        "tank_1_L": 0.01,
-        "tank_2_L": 0.01,
-        "tank_3_L": 0.01,
-        "tank_4_L": 0.01,
-        "tank_4_conc_out": 50.0,
-        "tank_4_v_dot_out": 10.0,
+        "tank_1_L": 10.0,
+        "tank_2_L": 10.0,
+        "tank_3_L": 10.0,
+        "tank_4_L": 10.0,
+        "tank_4_conc_out": 1.0,
+        "tank_4_v_dot_out": 1.0,
     }
     mv_weights = {
-        "tank_2_v_dot_in": 0.01,
-        "tank_3_v_dot_in": 0.01,
-        "mixer_v_dot_in_1": 0.01,
-        "mixer_v_dot_in_2": 0.01,
-        "tank_4_v_dot_out": 0.01,
+        "tank_2_v_dot_in": 0.1,
+        "tank_3_v_dot_in": 0.1,
+        "mixer_v_dot_in_1": 0.1,
+        "mixer_v_dot_in_2": 0.1,
+        "tank_4_v_dot_out": 0.1,
     }
-    v_dot_bounds = {"lower": 0.0, "upper": 100.0}
+    v_dot_bounds = {"lower": 0.0, "upper": 200.0}
     tank_level_bounds = {"lower": tank_height * 0.1, "upper": tank_height}
     tank_4_conc_out_bounds = {"lower": 0.0, "upper": 1.0}
 
@@ -698,15 +696,15 @@ def run_simulation():
     simulator.setup()
 
     tank_level = sum(tank_level_bounds.values()) / 2
-    tank_level = tank_height * 0.75
+    tank_level = tank_height * 0.15
 
     x0_init = {
         "tank_1_L": tank_level,
         "tank_1_m": np.pi * D**2 / 4 * tank_level * feed_conc_nominal,
         "tank_2_L": tank_level,
-        "tank_2_m": np.pi * D**2 / 4 * tank_level * feed_conc_nominal,
+        "tank_2_m": np.pi * D**2 / 4 * tank_level * feed_conc_nominal * 1.5,
         "tank_3_L": tank_level,
-        "tank_3_m": np.pi * D**2 / 4 * tank_level * feed_conc_nominal,
+        "tank_3_m": np.pi * D**2 / 4 * tank_level * feed_conc_nominal * 0.5,
         "tank_4_L": tank_level,
         "tank_4_m": np.pi * D**2 / 4 * tank_level * feed_conc_nominal,
         "tank_1_v_dot_in": feed_rate_nominal,
@@ -748,11 +746,11 @@ def run_simulation():
         n_steps,
         step_length,
         y_base=feed_conc_nominal,
-        y_min=0.8 * feed_conc_nominal,
-        y_max=1.2 * feed_conc_nominal,
+        y_min=0.0 * feed_conc_nominal,
+        y_max=2.0 * feed_conc_nominal,
         seed=10,
     )
-    tank_1_conc_in = np.full(tank_1_conc_in.shape, feed_conc_nominal)
+    # tank_1_conc_in = np.full(tank_1_conc_in.shape, feed_conc_nominal)
 
     print("\nRunning closed-loop simulation...")
     print(f"Simulation steps: {n_steps}")
@@ -809,11 +807,26 @@ def run_simulation():
             name: float(y0_m[i])
             for i, name in enumerate(measured_output_names)
         }
+
+        # Extract current setpoints from MPC's TVP function
+        t_now = float(simulator.t0)
+        tvp_current = mpc.tvp_fun(t_now)
+
+        # Get all TVP setpoint names dynamically
+        tvp_names = [key for key in model._tvp.keys() if key != "default"]
+
+        # Extract setpoints at current time (k=0 is current time in prediction horizon)
+        y0_sp = {
+            tvp_name: float(tvp_current["_tvp", 0, tvp_name, 0])
+            for tvp_name in tvp_names
+        }
+
         time_values.append(float(simulator.t0))
         sim_results["inputs"].append(u0)
         sim_results["states"].append(x0)
         sim_results["true_outputs"].append(y0)
         sim_results["measured_outputs"].append(y0_m)
+        sim_results["time_varying_params"].append(y0_sp)
 
         # Simulate system
         w0 = cas.DM(W[k, :])

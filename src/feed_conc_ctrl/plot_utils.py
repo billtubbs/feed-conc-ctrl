@@ -60,12 +60,19 @@ def make_tsplots(
         subplot_units = []
 
         for name, info in sub_plot_info.items():
-            var_name = info["var_name"]
-            kind = info.get("kind", "line")
+            var_name = info.pop("var_name")
+            try:
+                kind = info.pop("kind")
+            except KeyError:
+                kind = "line"
+            local_kwargs = kwargs.copy()
+            local_kwargs.update(info)
             if kind == "line":
-                data[var_name].plot(ax=ax, label=name, **kwargs)
+                data[var_name].plot(ax=ax, label=name, **local_kwargs)
             elif kind == "step":
-                data[var_name].plot(ax=ax, label=name, drawstyle="steps-post", **kwargs)
+                data[var_name].plot(
+                    ax=ax, label=name, drawstyle="steps-post", **local_kwargs
+                )
             else:
                 raise ValueError(f"Unsupported plot kind: {kind}")
 
