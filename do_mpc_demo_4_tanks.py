@@ -4,10 +4,8 @@ from collections import defaultdict
 import warnings
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 import casadi as cas
 import casadi.tools as castools
-from feed_conc_ctrl.plot_utils import make_tsplots
 
 # Suppress do_mpc optional feature warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="do_mpc.sysid")
@@ -30,7 +28,8 @@ def calc_mixing_tank_dynamics(L, m, v_dot_in, conc_in, v_dot_out, D):
     """
     A = cas.pi * (D**2) / 4
     dL_dt = (v_dot_in - v_dot_out) / A
-    dm_dt = v_dot_in * conc_in - v_dot_out * m / (L * A)
+    conc_out = m / (A * L)
+    dm_dt = v_dot_in * conc_in - v_dot_out * conc_out
     return dL_dt, dm_dt
 
 
@@ -241,6 +240,15 @@ def construct_4_tank_system_model(D):
     model.set_rhs("tank_1_conc_in", cas.DM(0))
     model.set_rhs("tank_1_v_dot_in", cas.DM(0))
 
+    # Time-varying parameters for setpoints
+    # These will be used in the cost function
+    model.set_variable(var_type="_tvp", var_name="tank_1_L_sp")
+    model.set_variable(var_type="_tvp", var_name="tank_2_L_sp")
+    model.set_variable(var_type="_tvp", var_name="tank_3_L_sp")
+    model.set_variable(var_type="_tvp", var_name="tank_4_L_sp")
+    model.set_variable(var_type="_tvp", var_name="tank_4_conc_out_sp")
+    model.set_variable(var_type="_tvp", var_name="tank_4_v_dot_out_sp")
+
     model.setup()
 
     return model
@@ -255,13 +263,13 @@ def cost_function_tracking(controlled_variables, setpoints, weights):
 def construct_mpc_controller(
     model,
     t_step,
-    setpoints,
+    n_horizon,
     cv_weights,
     mv_weights,
     v_dot_bounds,
     tank_level_bounds,
     tank_4_conc_out_bounds,
-    n_horizon=50,
+    n_robust=0,
 ):
     """Create MPC controller for 4-tank mixing system."""
     mpc = do_mpc.controller.MPC(model)
@@ -269,7 +277,7 @@ def construct_mpc_controller(
     mpc_params = {
         "n_horizon": n_horizon,  # Prediction horizon (hours)
         "t_step": t_step,  # Time step (hours)
-        "n_robust": 0,  # No robust horizon for now
+        "n_robust": n_robust,  # Robust horizon
         "store_full_solution": True,
     }
     mpc.set_param(**mpc_params)
@@ -284,14 +292,26 @@ def construct_mpc_controller(
         "tank_4_v_dot_out": model.u["tank_4_v_dot_out"],
     }
 
-    # Sum-of-squared tracking errors
+    # Map controlled variables to their TVP setpoints
+    setpoint_tvps = {
+        "tank_1_L": model.tvp["tank_1_L_sp"],
+        "tank_2_L": model.tvp["tank_2_L_sp"],
+        "tank_3_L": model.tvp["tank_3_L_sp"],
+        "tank_4_L": model.tvp["tank_4_L_sp"],
+        "tank_4_conc_out": model.tvp["tank_4_conc_out_sp"],
+        "tank_4_v_dot_out": model.tvp["tank_4_v_dot_out_sp"],
+    }
+
+    # Sum-of-squared tracking errors using TVP setpoints
     lterm = cost_function_tracking(
         cas.vcat(controlled_variables.values()),
-        cas.DM([setpoints[name] for name in controlled_variables]),
+        cas.vcat([setpoint_tvps[name] for name in controlled_variables]),
         cas.DM([cv_weights[name] for name in controlled_variables]),
     )
+
     # Terminal cost
     mterm = cas.DM(0)
+
     mpc.set_objective(mterm=mterm, lterm=lterm)
 
     # Set weights in control action cost term
@@ -335,8 +355,6 @@ def construct_mpc_controller(
         ub=tank_4_conc_out_bounds["upper"],
     )
 
-    mpc.setup()
-
     return mpc
 
 
@@ -366,34 +384,124 @@ def generate_random_steps_beta(
     return step_sequence
 
 
-def compile_sim_results(simulator, y0_init):
-    """Put all simulation results into a Pandas DataFrame"""
+def create_setpoint_tvp_function(
+    mpc_or_sim,
+    setpoints, 
+    forecast_data=None, 
+    t_step=1.0,
+    n_horizon=None,
+):
+    """Create TVP function for MPC setpoints.
 
-    # Simulator.make_step stores y(k+1) in the '_y' field, not y(k).
-    # Therefore shift the values forward one time step and insert
-    # the initial condition at t = 0.
-    data_y = simulator.data["_y"].copy()
-    data_y = np.roll(data_y, 1, axis=0)
-    data_y[0, :] = np.array(y0_init).flatten()
-    sim_results = pd.concat(
-        {
-            "time": pd.DataFrame(simulator.data["_time"]),
-            "manipulated_inputs": pd.DataFrame(
-                simulator.data["_u"],
-                columns=pd.Index(simulator.model._u.keys()).drop("default"),
-            ),
-            "states": pd.DataFrame(
-                simulator.data["_x"],
-                columns=pd.Index(simulator.model._x.keys()),
-            ),
-            "outputs": pd.DataFrame(
-                data_y,
-                columns=pd.Index(simulator.model._y.keys()).drop("default"),
-            ),
-        },
-        axis=1,
-    )
-    return sim_results
+    Parameters
+    ----------
+    mpc_or_sim : do_mpc.controller.MPC or do_mpc.simulator.Simulator
+        The MPC controller or simulator object (NOT the model)
+    setpoints : dict
+        Dictionary mapping variable names to either:
+        - float/int: constant setpoint value
+        - str: key to lookup in forecast_data
+    forecast_data : dict, optional
+        Dictionary mapping forecast keys to arrays of values.
+        Each array should contain discrete-time forecast values.
+    t_step : float
+        Time step for simulation/control (hours)
+    n_horizon : int, optional
+        Prediction horizon length. If None, inferred from mpc_or_sim
+
+    Returns
+    -------
+    tvp_function : callable
+        Function that returns TVP values at time t using ZOH interpolation
+    """
+
+    # Initialize TVP template from mpc or simulator object
+    tvp_template = mpc_or_sim.get_tvp_template()
+    
+    # Get horizon length
+    if n_horizon is None:
+        if hasattr(mpc_or_sim, 'settings'):
+            n_horizon = mpc_or_sim.settings.n_horizon
+        else:
+            n_horizon = 1  # For simulator, just one step
+
+    # Process setpoints configuration
+    setpoint_config = {}
+    for var_name, value in setpoints.items():
+        tvp_name = f"{var_name}_sp"
+        if isinstance(value, str):
+            # String indicates a reference to forecast_data
+            if forecast_data is None or value not in forecast_data:
+                raise ValueError(
+                    f"Setpoint for {var_name} references '{value}' but "
+                    f"forecast_data is missing this key"
+                )
+            setpoint_config[tvp_name] = {
+                "type": "forecast",
+                "key": value,
+                "data": np.array(forecast_data[value]),
+            }
+        else:
+            # Numeric value indicates constant setpoint
+            setpoint_config[tvp_name] = {
+                "type": "constant",
+                "value": float(value),
+            }
+
+    def tvp_function(t_now):
+        """Return TVP values at time t_now using zero-order-hold.
+
+        For forecast data, uses ZOH interpolation:
+        - Finds the discrete time index: k = floor(t_now / t_step)
+        - Returns the value at index k (holds until next sample)
+        """
+        for tvp_name, config in setpoint_config.items():
+            # Fill in values for each step in the prediction horizon
+            for k in range(n_horizon):
+                if config["type"] == "constant":
+                    tvp_template['_tvp', k, tvp_name, 0] = config["value"]
+                else:  # forecast
+                    # Calculate the time index for this prediction step
+                    t_pred = t_now + k * t_step
+                    idx = int(np.floor(t_pred / t_step))
+                    data = config["data"]
+                    
+                    # Clamp to valid range (hold last value if beyond forecast)
+                    idx = np.clip(idx, 0, len(data) - 1)
+                    tvp_template['_tvp', k, tvp_name, 0] = data[idx]
+
+        return tvp_template
+
+    return tvp_function
+
+
+def create_simulator_tvp_function(simulator):
+    """Create a simple TVP function for the simulator.
+
+    For simulation, we don't need setpoint forecasts - the simulator
+    just runs the plant model. Returns a function that provides
+    zero/dummy values for all TVPs.
+    
+    Parameters
+    ----------
+    simulator : do_mpc.simulator.Simulator
+        The simulator object
+    """
+    tvp_template = simulator.get_tvp_template()
+    
+    # Get list of TVP variable names
+    tvp_names = list(simulator.model._tvp.keys())
+    # Remove 'default' if it exists
+    if 'default' in tvp_names:
+        tvp_names.remove('default')
+
+    def tvp_function(t_now):
+        # Simulator uses flat indexing: just variable name
+        for tvp_name in tvp_names:
+            tvp_template[tvp_name] = 0.0
+        return tvp_template
+
+    return tvp_function
 
 
 def get_measurements(simulator, v0: np.ndarray = None):
@@ -498,45 +606,71 @@ def run_simulation():
     tank_level_bounds = {"lower": 1.0, "upper": 10.0}
 
     # Design basis
-    feed_rate_nominal = 35.0  # m^3/h
+    feed_rate_nominal = 2.0  # m^3/h
     feed_conc_nominal = 0.5  # solids density (w/w)
 
     # Construct system model
     model = construct_4_tank_system_model(D=D)
 
-    # Create MPC controller
+    # Simulation time
+    n_steps = 100
+    t_step = 1.0
+    time = np.arange(n_steps) * t_step
+    
+    # Create time-varying forecasts
+    # Example: Daily variation in concentration setpoint
+    conc_setpoint_forecast = (
+        feed_conc_nominal + 
+        0.05 * np.sin(2 * np.pi * time / 24)  # ±0.05 around nominal
+    )
+    
+    # Example: Step changes in flow rate setpoint
+    flow_setpoint_forecast = np.full(n_steps, feed_rate_nominal)
+    flow_setpoint_forecast[30:60] = feed_rate_nominal * 1.2
+    flow_setpoint_forecast[60:] = feed_rate_nominal * 0.9
+    
+    # Define setpoints with mix of constant and time-varying
     setpoints = {
-        "tank_1_L": tank_height * 0.75,
-        "tank_2_L": tank_height * 0.75,
-        "tank_3_L": tank_height * 0.75,
-        "tank_4_L": tank_height * 0.75,
-        "tank_4_conc_out": feed_conc_nominal,
-        "tank_4_v_dot_out": feed_rate_nominal,
+        "tank_1_L": tank_height * 0.75,  # Constant
+        "tank_2_L": tank_height * 0.75,  # Constant
+        "tank_3_L": tank_height * 0.75,  # Constant
+        "tank_4_L": tank_height * 0.75,  # Constant
+        "tank_4_conc_out": "conc_sp",    # Time-varying
+        "tank_4_v_dot_out": "flow_sp",   # Time-varying
     }
+
+    forecast_data = {
+        "conc_sp": conc_setpoint_forecast,
+        "flow_sp": flow_setpoint_forecast,
+    }
+
     cv_weights = {
-        "tank_1_L": 0.1,
-        "tank_2_L": 0.1,
-        "tank_3_L": 0.1,
-        "tank_4_L": 0.1,
+        "tank_1_L": 0.01,
+        "tank_2_L": 0.01,
+        "tank_3_L": 0.01,
+        "tank_4_L": 0.01,
         "tank_4_conc_out": 50.0,
         "tank_4_v_dot_out": 10.0,
     }
     mv_weights = {
-        "tank_2_v_dot_in": 0.1,
-        "tank_3_v_dot_in": 0.1,
-        "mixer_v_dot_in_1": 0.1,
-        "mixer_v_dot_in_2": 0.1,
-        "tank_4_v_dot_out": 0.1,
+        "tank_2_v_dot_in": 0.01,
+        "tank_3_v_dot_in": 0.01,
+        "mixer_v_dot_in_1": 0.01,
+        "mixer_v_dot_in_2": 0.01,
+        "tank_4_v_dot_out": 0.01,
     }
     v_dot_bounds = {"lower": 0.0, "upper": 100.0}
     tank_level_bounds = {"lower": tank_height * 0.1, "upper": tank_height}
     tank_4_conc_out_bounds = {"lower": 0.0, "upper": 1.0}
-    t_step = 1.0
 
+    # Length of prediction horizon
+    n_horizon = 50
+
+    # Create MPC controller
     mpc = construct_mpc_controller(
         model,
         t_step,
-        setpoints,
+        n_horizon,
         cv_weights,
         mv_weights,
         v_dot_bounds,
@@ -544,9 +678,23 @@ def run_simulation():
         tank_4_conc_out_bounds,
     )
 
+    # Create and set MPC TVP function
+    mpc_tvp_fun = create_setpoint_tvp_function(
+        mpc, setpoints, forecast_data, t_step=t_step, n_horizon=n_horizon
+    )
+    mpc.set_tvp_fun(mpc_tvp_fun)
+
+    # Finalize MPC setup
+    mpc.setup()
+
     # Create simulator
     simulator = do_mpc.simulator.Simulator(model)
     simulator.set_param(t_step=t_step)
+
+    # Set TVP functions
+    simulator_tvp_fun = create_simulator_tvp_function(simulator)
+    simulator.set_tvp_fun(simulator_tvp_fun)
+
     simulator.setup()
 
     tank_level = sum(tank_level_bounds.values()) / 2
@@ -574,17 +722,16 @@ def run_simulation():
     simulator.x0 = x0_init
 
     # Prepare lists of names of inputs and measured outputs
-    # TODO: This is only necessary because model has a 'default' name
     mv_names = list(model.u.keys())
-    mv_names.remove("default")
     measured_output_names = list(model.y.keys())
+    # TODO: This is only necessary because model has a 'default' name
+    mv_names.remove("default")
     measured_output_names.remove("default")
     output_names = [
         name.removesuffix("_meas") for name in measured_output_names
     ]
 
     # Generate input data
-    n_steps = 100
 
     # Disturbance inputs:
     step_length = 5
@@ -592,18 +739,20 @@ def run_simulation():
         n_steps,
         step_length,
         y_base=feed_rate_nominal,
-        y_min=1.0 * feed_rate_nominal,
-        y_max=1.0 * feed_rate_nominal,
+        y_min=0.9 * feed_rate_nominal,
+        y_max=1.1 * feed_rate_nominal,
         seed=10,
     )
+    tank_1_v_dot_in = np.full(tank_1_v_dot_in.shape, feed_rate_nominal)
     tank_1_conc_in = generate_random_steps_beta(
         n_steps,
         step_length,
         y_base=feed_conc_nominal,
-        y_min=1.0 * feed_conc_nominal,
-        y_max=1.0 * feed_conc_nominal,
+        y_min=0.8 * feed_conc_nominal,
+        y_max=1.2 * feed_conc_nominal,
         seed=10,
     )
+    tank_1_conc_in = np.full(tank_1_conc_in.shape, feed_conc_nominal)
 
     print("\nRunning closed-loop simulation...")
     print(f"Simulation steps: {n_steps}")
