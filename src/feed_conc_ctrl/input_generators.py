@@ -36,7 +36,7 @@ def brw_reversion_bias(x, alpha1, alpha2, beta, tau):
 
 
 def sample_bounded_random_walk(
-    sd_e, beta, alpha1, alpha2, n, tau, phi=0.5, xkm1=None
+    sd_e, beta, alpha1, alpha2, size, tau, phi=0.5, xkm1=None, rng=None, seed=0
 ):
     """Simulate bounded random walk stochastic process.
 
@@ -49,24 +49,28 @@ def sample_bounded_random_walk(
         beta: Scaling parameter for reversion bias
         alpha1: First exponential parameter for reversion bias
         alpha2: Second exponential parameter for reversion bias
-        n: Number of samples to generate
+        size: Number of samples to generate
         tau: Target/equilibrium value
-        phi: Regularization parameter (default: 0.5)
-        xkm1: Initial state value (default: tau)
+        phi: Regularization parameter (optional, default 0.5)
+        xkm1: Initial state value (optional, default tau)
+        rng: random number generator (optional, default None)
 
     Returns:
-        Array of n samples from the bounded random walk process
+        Array of size samples from the bounded random walk process
     """
+    if rng is None:
+        rng = np.random.default_rng(seed=seed)
+
     # Set initial state if not provided
     if xkm1 is None:
         xkm1 = tau
 
     # Generate white noise
-    e = np.random.randn(n)
-    p = np.zeros(n)
+    e = rng.normal(size=size)
+    p = np.zeros(size)
 
     # Simulate
-    for i in range(n):
+    for i in range(size):
         # Stochastic input
         alpha = sd_e * e[i]
 
