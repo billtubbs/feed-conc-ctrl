@@ -18,35 +18,34 @@ def brw_reversion_bias(x, alpha1, alpha2, beta, tau):
     return a
 
 
-def compute_brw_parameters_with_steepness(r1, r2, a1, a2, tau):
+def compute_brw_parameters_with_steepness(r1, r2, a1, a2):
     """Compute BRW parameters with independent control.
 
     This parameterization defines:
-    - r1: offset from tau where a(tau + r1) = +1 (typically r1 < 0, below tau)
-    - r2: offset from tau where a(tau + r2) = -1 (typically r2 > 0, above tau)
+    - r1: offset from zero where a(r1) = +1 (typically r1 < 0, below zero)
+    - r2: offset from zero where a(r2) = -1 (typically r2 > 0, above zero)
     - a1: (|derivative|) at r1 (positive value)
     - a2: (|derivative|) at r2 (positive value)
 
     Args:
-        r1: Offset from tau where bias = +1 (negative for below tau)
-        r2: Offset from tau where bias = -1 (positive for above tau)
+        r1: Offset from zero where bias = +1 (negative for below zero)
+        r2: Offset from zero where bias = -1 (positive for above zero)
         a1: (|derivative|) at r1 (positive value)
         a2: (|derivative|) at r2 (positive value)
-        tau: Target/equilibrium value
 
     Returns:
         tuple: (alpha1, alpha2, beta)
     """
-    # From the bias function constraints:
-    # a(τ + r1) = exp(β - α₁·r1) - exp(β + α₂·r1) = 1
-    # a(τ + r2) = exp(β - α₁·r2) - exp(β + α₂·r2) = -1
+    # From the bias function constraints (with tau = 0):
+    # a(r1) = exp(β - α₁·r1) - exp(β + α₂·r1) = 1
+    # a(r2) = exp(β - α₁·r2) - exp(β + α₂·r2) = -1
 
     # From the derivative constraints:
-    # a'(τ + r1) = -α₁·exp(β - α₁·r1) - α₂·exp(β + α₂·r1)
-    # a'(τ + r2) = -α₁·exp(β - α₁·r2) - α₂·exp(β + α₂·r2)
+    # a'(r1) = -α₁·exp(β - α₁·r1) - α₂·exp(β + α₂·r1)
+    # a'(r2) = -α₁·exp(β - α₁·r2) - α₂·exp(β + α₂·r2)
 
-    # For r1 < 0 (below tau): exp(β + α₂·r1) dominates
-    # For r2 > 0 (above tau): exp(β - α₁·r2) dominates
+    # For r1 < 0 (below zero): exp(β + α₂·r1) dominates
+    # For r2 > 0 (above zero): exp(β - α₁·r2) dominates
 
     # Approximation approach:
     # At r1: the exp(β + α₂·r1) term dominates both bias and derivative
@@ -80,31 +79,35 @@ def compute_brw_parameters_with_steepness(r1, r2, a1, a2, tau):
     return alpha1, alpha2, beta
 
 
-def sample_bounded_random_walk_with_steepness(
-    sd_e, r1, r2, a1, a2, tau, size, phi=0.5, xkm1=None, rng=None, seed=0
+def sample_bounded_random_walk(
+    sd_e, r1, r2, a1, a2, size, phi=0.5, xkm1=None, rng=None, seed=0
 ):
     """Simulate bounded random walk with control.
 
+    The process is centered at zero (tau = 0). To shift the output to a different
+    operating point, add the desired offset to the returned samples.
+
     Args:
         sd_e: Standard deviation of the stochastic noise
-        r1: Offset from tau where bias = +1 (typically negative, e.g., -5)
-        r2: Offset from tau where bias = -1 (typically positive, e.g., +5)
+        r1: Offset from zero where bias = +1 (typically negative, e.g., -5)
+        r2: Offset from zero where bias = -1 (typically positive, e.g., +5)
         a1: (|derivative|) at r1 (positive value)
         a2: (|derivative|) at r2 (positive value)
-        tau: Target/equilibrium value
         size: Number of samples to generate
         phi: Regularization parameter (optional, default 0.5)
-        xkm1: Initial state value (optional, default tau)
+        xkm1: Initial state value (optional, default 0)
         rng: Random number generator (optional, default None)
         seed: Random seed (optional, default 0)
 
     Returns:
-        Array of size samples from the bounded random walk process
+        Array of size samples from the bounded random walk process (centered at zero)
     """
-    # Compute original parameters
+    # Compute original parameters (with tau = 0)
     alpha1, alpha2, beta = compute_brw_parameters_with_steepness(
-        r1, r2, a1, a2, tau
+        r1, r2, a1, a2
     )
+
+    tau = 0.0  # Always centered at zero
 
     if rng is None:
         rng = np.random.default_rng(seed=seed)
@@ -138,67 +141,15 @@ def sample_bounded_random_walk_with_steepness(
     return p
 
 
-def sample_bounded_random_walk_with_noise(
-    sd_e, r1, r2, a1, a2, tau, noise_sequence, phi=0.5, xkm1=None
-):
-    """Simulate bounded random walk with pre-generated noise sequence.
-
-    Args:
-        sd_e: Standard deviation of the stochastic noise
-        r1: Offset from tau where bias = +1 (typically negative, e.g., -5)
-        r2: Offset from tau where bias = -1 (typically positive, e.g., +5)
-        a1: (|derivative|) at r1 (positive value)
-        a2: (|derivative|) at r2 (positive value)
-        tau: Target/equilibrium value
-        noise_sequence: Pre-generated noise array
-        phi: Regularization parameter (optional, default 0.5)
-        xkm1: Initial state value (optional, default tau)
-
-    Returns:
-        Array of samples from the bounded random walk process
-    """
-    # Compute original parameters
-    alpha1, alpha2, beta = compute_brw_parameters_with_steepness(
-        r1, r2, a1, a2, tau
-    )
-
-    # Set initial state if not provided
-    if xkm1 is None:
-        xkm1 = tau
-
-    size = len(noise_sequence)
-    p = np.zeros(size)
-
-    # Simulate
-    for i in range(size):
-        # Stochastic input
-        alpha = sd_e * noise_sequence[i]
-
-        # Reversion bias
-        bias = brw_reversion_bias(xkm1, alpha1, alpha2, beta, tau)
-
-        # Regularization step (to avoid instability)
-        if abs(bias) < 2 * abs(xkm1 - tau):
-            x = xkm1 + bias + alpha
-        else:
-            x = tau + phi * (xkm1 - tau) + alpha
-
-        # Bounded process output
-        p[i] = x
-        xkm1 = x
-
-    return p
-
-
 # Example usage and testing
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
 
     # Common parameters
     sd_e = 1.0
-    tau = 100.0
-    r1 = -10.0  # When x is 5 units below tau, bias = +1 (pushes up)
-    r2 = 10.0  # When x is 5 units above tau, bias = -1 (pushes down)
+    y_nop = 100.0  # Normal operating point
+    r1 = -10.0  # When x is 10 units below zero, bias = +1 (pushes up)
+    r2 = 10.0  # When x is 10 units above zero, bias = -1 (pushes down)
     size = 100000
     plot_size = 500
 
@@ -209,28 +160,33 @@ if __name__ == "__main__":
     a1_high = 2.0
     a2_high = 2.0
 
-    # Generate single noise sequence to use for both
-    rng = np.random.default_rng(seed=42)
-    noise_sequence = rng.normal(size=size)
+    # Generate bounded random walks
+    seed = 42
 
-    # Generate both samples with same noise
-    samples_low = sample_bounded_random_walk_with_noise(
-        sd_e, r1, r2, a1_low, a2_low, tau, noise_sequence
+    # Generate both samples with same seed (same noise), then shift to y_nop
+    samples_low = (
+        sample_bounded_random_walk(
+            sd_e, r1, r2, a1_low, a2_low, size, seed=seed
+        )
+        + y_nop
     )
-    samples_high = sample_bounded_random_walk_with_noise(
-        sd_e, r1, r2, a1_high, a2_high, tau, noise_sequence
+    samples_high = (
+        sample_bounded_random_walk(
+            sd_e, r1, r2, a1_high, a2_high, size, seed=seed
+        )
+        + y_nop
     )
 
     # Compute parameters for both
     alpha1_low, alpha2_low, beta_low = compute_brw_parameters_with_steepness(
-        r1, r2, a1_low, a2_low, tau
+        r1, r2, a1_low, a2_low
     )
     alpha1_high, alpha2_high, beta_high = (
-        compute_brw_parameters_with_steepness(r1, r2, a1_high, a2_high, tau)
+        compute_brw_parameters_with_steepness(r1, r2, a1_high, a2_high)
     )
 
     print(f"Common parameters:")
-    print(f"  r1 = {r1}, r2 = {r2}, tau = {tau}")
+    print(f"  r1 = {r1}, r2 = {r2}, y_nop = {y_nop}")
     print(f"  sd_e = {sd_e}")
 
     print(f"\nLow (a1=a2={a1_low}):")
@@ -244,16 +200,16 @@ if __name__ == "__main__":
     )
 
     # Analyze the bias functions
-    x_range = np.linspace(tau + 1.1 * r1, tau + 1.1 * r2, 1000)
+    x_range = np.linspace(1.1 * r1, 1.1 * r2, 1000)
     bias_values_low = np.array(
         [
-            brw_reversion_bias(x, alpha1_low, alpha2_low, beta_low, tau)
+            brw_reversion_bias(x, alpha1_low, alpha2_low, beta_low, 0.0)
             for x in x_range
         ]
     )
     bias_values_high = np.array(
         [
-            brw_reversion_bias(x, alpha1_high, alpha2_high, beta_high, tau)
+            brw_reversion_bias(x, alpha1_high, alpha2_high, beta_high, 0.0)
             for x in x_range
         ]
     )
@@ -280,15 +236,19 @@ if __name__ == "__main__":
         label=f"High (a={a1_high})",
     )
     ax1.axhline(
-        tau,
+        y_nop,
         color="g",
         linestyle="--",
         linewidth=2,
         alpha=0.5,
-        label=f"tau = {tau}",
+        label=f"y_nop = {y_nop}",
     )
-    ax1.axhline(tau + r1, color="gray", linestyle=":", linewidth=1, alpha=0.5)
-    ax1.axhline(tau + r2, color="gray", linestyle=":", linewidth=1, alpha=0.5)
+    ax1.axhline(
+        y_nop + r1, color="gray", linestyle=":", linewidth=1, alpha=0.5
+    )
+    ax1.axhline(
+        y_nop + r2, color="gray", linestyle=":", linewidth=1, alpha=0.5
+    )
     ax1.set_xlabel("Sample")
     ax1.set_ylabel("Value")
     ax1.set_title(f"Bounded Random Walk Comparison ({size:,d} samples)")
@@ -305,9 +265,13 @@ if __name__ == "__main__":
         edgecolor="black",
         color="blue",
     )
-    ax2.axvline(tau, color="g", linestyle="--", linewidth=2, alpha=0.5)
-    ax2.axvline(tau + r1, color="gray", linestyle=":", linewidth=1, alpha=0.5)
-    ax2.axvline(tau + r2, color="gray", linestyle=":", linewidth=1, alpha=0.5)
+    ax2.axvline(y_nop, color="g", linestyle="--", linewidth=2, alpha=0.5)
+    ax2.axvline(
+        y_nop + r1, color="gray", linestyle=":", linewidth=1, alpha=0.5
+    )
+    ax2.axvline(
+        y_nop + r2, color="gray", linestyle=":", linewidth=1, alpha=0.5
+    )
     ax2.set_xlabel("Value")
     ax2.set_ylabel("Density")
     ax2.set_title(f"Distribution (a={a1_low})")
@@ -322,25 +286,29 @@ if __name__ == "__main__":
         edgecolor="black",
         color="red",
     )
-    ax3.axvline(tau, color="g", linestyle="--", linewidth=2, alpha=0.5)
-    ax3.axvline(tau + r1, color="gray", linestyle=":", linewidth=1, alpha=0.5)
-    ax3.axvline(tau + r2, color="gray", linestyle=":", linewidth=1, alpha=0.5)
+    ax3.axvline(y_nop, color="g", linestyle="--", linewidth=2, alpha=0.5)
+    ax3.axvline(
+        y_nop + r1, color="gray", linestyle=":", linewidth=1, alpha=0.5
+    )
+    ax3.axvline(
+        y_nop + r2, color="gray", linestyle=":", linewidth=1, alpha=0.5
+    )
     ax3.set_xlabel("Value")
     ax3.set_ylabel("Density")
     ax3.set_title(f"Distribution (a={a1_high})")
     ax3.grid(True)
 
-    # Bias function comparison
+    # Bias function comparison (shown relative to zero)
     ax4 = fig.add_subplot(gs[2, :])
     ax4.plot(
-        x_range,
+        x_range + y_nop,
         bias_values_low,
         "b-",
         linewidth=2,
         label=f"Low (a={a1_low})",
     )
     ax4.plot(
-        x_range,
+        x_range + y_nop,
         bias_values_high,
         "r-",
         linewidth=2,
@@ -349,10 +317,14 @@ if __name__ == "__main__":
     ax4.axhline(0, color="k", linestyle="-", linewidth=0.5)
     ax4.axhline(1, color="orange", linestyle="--", linewidth=1, alpha=0.5)
     ax4.axhline(-1, color="orange", linestyle="--", linewidth=1, alpha=0.5)
-    ax4.axvline(tau, color="g", linestyle="--", linewidth=2, alpha=0.5)
-    ax4.axvline(tau + r1, color="gray", linestyle=":", linewidth=1, alpha=0.5)
-    ax4.axvline(tau + r2, color="gray", linestyle=":", linewidth=1, alpha=0.5)
-    ax4.scatter([tau + r1, tau + r2], [1, -1], color="orange")
+    ax4.axvline(y_nop, color="g", linestyle="--", linewidth=2, alpha=0.5)
+    ax4.axvline(
+        y_nop + r1, color="gray", linestyle=":", linewidth=1, alpha=0.5
+    )
+    ax4.axvline(
+        y_nop + r2, color="gray", linestyle=":", linewidth=1, alpha=0.5
+    )
+    ax4.scatter([y_nop + r1, y_nop + r2], [1, -1], color="orange")
     ax4.set_xlabel("x")
     ax4.set_ylabel("$a(x)$ - bias")
     ax4.set_title("Reversion Bias Function Comparison")
