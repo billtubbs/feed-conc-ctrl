@@ -1,6 +1,8 @@
+import numba
 import numpy as np
 
 
+@numba.njit
 def brw_reversion_bias(x, alpha1, alpha2, beta, tau):
     """Calculate reversion bias for bounded random walk.
 
@@ -28,116 +30,201 @@ def compute_brw_parameters_with_steepness(r1, r2, a1, a2):
     - a2: (|derivative|) at r2 (positive value)
 
     Args:
-        r1: Offset from zero where bias = +1 (negative for below zero)
-        r2: Offset from zero where bias = -1 (positive for above zero)
-        a1: (|derivative|) at r1 (positive value)
-        a2: (|derivative|) at r2 (positive value)
+        r1: Offset from zero where bias = +1 (negative for below zero), scalar or 1-D array
+        r2: Offset from zero where bias = -1 (positive for above zero), scalar or 1-D array
+        a1: (|derivative|) at r1 (positive value), scalar or 1-D array
+        a2: (|derivative|) at r2 (positive value), scalar or 1-D array
 
     Returns:
         tuple: (alpha1, alpha2, beta)
     """
-    # From the bias function constraints (with tau = 0):
-    # a(r1) = exp(β - α₁·r1) - exp(β + α₂·r1) = 1
-    # a(r2) = exp(β - α₁·r2) - exp(β + α₂·r2) = -1
-
-    # From the derivative constraints:
-    # a'(r1) = -α₁·exp(β - α₁·r1) - α₂·exp(β + α₂·r1)
-    # a'(r2) = -α₁·exp(β - α₁·r2) - α₂·exp(β + α₂·r2)
-
-    # For r1 < 0 (below zero): exp(β + α₂·r1) dominates
-    # For r2 > 0 (above zero): exp(β - α₁·r2) dominates
-
-    # Approximation approach:
-    # At r1: the exp(β + α₂·r1) term dominates both bias and derivative
-    # At r2: the exp(β - α₁·r2) term dominates both bias and derivative
-
-    # From dominant terms:
-    # At r1: exp(β + α₂·r1) ≈ -1, and -α₂·exp(β + α₂·r1) ≈ a1
-    # This gives: α₂ ≈ a1
-
-    # At r2: exp(β - α₁·r2) ≈ -1, and -α₁·exp(β - α₁·r2) ≈ -a2
-    # This gives: α₁ ≈ a2
+    r1 = np.asarray(r1, dtype=np.float64)
+    r2 = np.asarray(r2, dtype=np.float64)
+    a1 = np.asarray(a1, dtype=np.float64)
+    a2 = np.asarray(a2, dtype=np.float64)
 
     alpha1 = a2
     alpha2 = a1
-
-    # Solve for β using the bias constraint at r2:
-    # exp(β - α₁·r2) - exp(β + α₂·r2) = -1
-    # exp(β)[exp(-α₁·r2) - exp(α₂·r2)] = -1
-
     term = np.exp(-alpha1 * r2) - np.exp(alpha2 * r2)
 
-    if abs(term) < 1e-10:
-        # Fallback if term is too small
+    small = np.abs(term) < 1e-10
+    if np.any(small):
         print("Warning: Numerical issues in parameter computation")
-        alpha1 = 2.0 / abs(r2)
-        alpha2 = 2.0 / abs(r1)
-        beta = np.log(1.0 / (2.0 * np.sinh(alpha1 * r2)))
-    else:
-        beta = np.log(-1.0 / term)
+
+    alpha1_fallback = 2.0 / np.abs(r2)
+    alpha2_fallback = 2.0 / np.abs(r1)
+    beta_fallback = np.log(1.0 / (2.0 * np.sinh(alpha1_fallback * r2)))
+
+    with np.errstate(invalid='ignore', divide='ignore'):
+        beta_normal = np.log(-1.0 / term)
+
+    alpha1 = np.where(small, alpha1_fallback, alpha1)
+    alpha2 = np.where(small, alpha2_fallback, alpha2)
+    beta = np.where(small, beta_fallback, beta_normal)
 
     return alpha1, alpha2, beta
+
+
+@numba.njit
+def simulate_brw(e, sd_e, xkm1, alpha1, alpha2, beta, tau, phi):
+    """
+    Simulate multiple bounded random walks (vectorized).
+    
+    Args:
+        e: array of shape (n_samples, n_walks) of standard normal samples
+        sd_e: array of shape (n_walks,), std of noise
+        xkm1: 1-D array of initial states for each walk, length n_walks
+        alpha1, alpha2, beta: BRW parameters
+        tau: target value
+        phi: regularization parameter
+    
+    Returns:
+        Array of shape (n_samples, n_walks)
+    """
+    p = np.zeros(e.shape)
+
+    for i in range(e.shape[0]):
+        bias = brw_reversion_bias(xkm1, alpha1, alpha2, beta, tau)
+        alpha = sd_e * e[i]
+        # Vectorized regularization
+        x = np.where(np.abs(bias) < 2 * np.abs(xkm1 - tau),
+                     xkm1 + bias + alpha,
+                     tau + phi * (xkm1 - tau) + alpha)
+        p[i] = x
+        xkm1 = x  # update for next step
+    return p
 
 
 def sample_bounded_random_walk(
     sd_e, r1, r2, a1, a2, size, phi=0.5, xkm1=None, rng=None, seed=0
 ):
-    """Simulate bounded random walk with control.
+    # Convert BRW params to arrays to determine n_walks
+    r1 = np.atleast_1d(np.asarray(r1, dtype=np.float64))
+    r2 = np.atleast_1d(np.asarray(r2, dtype=np.float64))
+    a1 = np.atleast_1d(np.asarray(a1, dtype=np.float64))
+    a2 = np.atleast_1d(np.asarray(a2, dtype=np.float64))
 
-    The process is centered at zero (tau = 0). To shift the output to a different
-    operating point, add the desired offset to the returned samples.
+    n_walks = r1.shape[0]
 
-    Args:
-        sd_e: Standard deviation of the stochastic noise
-        r1: Offset from zero where bias = +1 (typically negative, e.g., -5)
-        r2: Offset from zero where bias = -1 (typically positive, e.g., +5)
-        a1: (|derivative|) at r1 (positive value)
-        a2: (|derivative|) at r2 (positive value)
-        size: Number of samples to generate
-        phi: Regularization parameter (optional, default 0.5)
-        xkm1: Initial state value (optional, default 0)
-        rng: Random number generator (optional, default None)
-        seed: Random seed (optional, default 0)
+    # Validate consistent shapes
+    if not (r2.shape == r1.shape == a1.shape == a2.shape):
+        raise ValueError(
+            f"r1, r2, a1, a2 must all have the same shape, got "
+            f"{r1.shape}, {r2.shape}, {a1.shape}, {a2.shape}"
+        )
 
-    Returns:
-        Array of size samples from the bounded random walk process (centered at zero)
-    """
-    # Compute original parameters (with tau = 0)
-    alpha1, alpha2, beta = compute_brw_parameters_with_steepness(
-        r1, r2, a1, a2
-    )
+    # sd_e can be scalar or array of shape (n_walks,)
+    sd_e = np.atleast_1d(np.asarray(sd_e, dtype=np.float64))
+    if sd_e.shape[0] == 1:
+        sd_e = np.full(n_walks, sd_e[0], dtype=np.float64)
+    elif sd_e.shape[0] != n_walks:
+        raise ValueError(
+            f"sd_e must be a scalar or have shape ({n_walks},), got {sd_e.shape}"
+        )
 
-    tau = 0.0  # Always centered at zero
+    # Compute BRW parameters
+    alpha1, alpha2, beta = compute_brw_parameters_with_steepness(r1, r2, a1, a2)
+
+    tau = 0.0
 
     if rng is None:
         rng = np.random.default_rng(seed=seed)
 
+    # Always generate independent noise for each walk
+    e = rng.normal(size=(size, n_walks))
+
     # Set initial state if not provided
+    if xkm1 is None:
+        xkm1 = np.full(n_walks, tau, dtype=np.float64)
+    else:
+        xkm1 = np.atleast_1d(np.asarray(xkm1, dtype=np.float64))
+        if xkm1.shape[0] != n_walks:
+            raise ValueError(
+                f"xkm1 must have shape ({n_walks},), got {xkm1.shape}"
+            )
+
+    p = simulate_brw(e, sd_e, xkm1, alpha1, alpha2, beta, tau, phi)
+
+    return p.squeeze()
+
+
+@numba.njit
+def simulate_brw_irregular(e, t_eval, sd_e, xkm1, alpha1, alpha2, beta, tau, phi):
+    """
+    Simulate multiple bounded random walks at irregular sample times.
+    
+    Args:
+        e: array of shape (n_samples, n_walks) of standard normal samples
+        t_eval: array of sample times (monotonic increasing)
+        sd_e: scalar
+        xkm1: 1-D array of initial states for each walk
+        alpha1, alpha2, beta: BRW parameters
+        tau: target value
+        phi: regularization parameter
+    
+    Returns:
+        Array of shape (n_samples, n_walks)
+    """
+    p = np.zeros(e.shape)
+    
+    for i in range(e.shape[0]):
+        if i == 0:
+            dt = t_eval[0]
+        else:
+            dt = t_eval[i] - t_eval[i - 1]
+        bias = brw_reversion_bias(xkm1, alpha1, alpha2, beta, tau) * dt
+        alpha = sd_e * np.sqrt(dt) * e[i]
+        x = np.where(np.abs(bias) < 2 * np.abs(xkm1 - tau),
+                     xkm1 + bias + alpha,
+                     tau + phi * (xkm1 - tau) + alpha)
+        p[i] = x
+        xkm1 = x
+    return p
+
+
+def sample_bounded_random_walk_irregular(
+    sd_e, r1, r2, a1, a2, t_eval, phi=0.5, xkm1=None, rng=None, seed=0
+):
+    """
+    Bounded random walk with irregular sampling times.
+
+    Args:
+        sd_e: Standard deviation of the stochastic noise
+        r1: Offset from zero where bias = +1 (negative)
+        r2: Offset from zero where bias = -1 (positive)
+        a1: |derivative| at r1
+        a2: |derivative| at r2
+        t_eval: Array of sample times (must be strictly increasing)
+        phi: Regularization parameter
+        xkm1: Initial state value (optional)
+        rng: np.random.Generator (optional)
+        seed: Random seed if rng is None
+
+    Returns:
+        Array of samples from bounded random walk
+    """
+    # Ensure t_eval is NumPy array
+    t_eval = np.asarray(t_eval, dtype=np.float64)
+    n = len(t_eval)
+
+    # Compute BRW parameters
+    alpha1, alpha2, beta = compute_brw_parameters_with_steepness(
+        r1, r2, a1, a2
+    )
+    tau = 0.0
+
+    if rng is None:
+        rng = np.random.default_rng(seed=seed)
+
+    # Generate white noise
+    e = rng.normal(size=n)
+
+    # Set initial state
     if xkm1 is None:
         xkm1 = tau
 
-    # Generate white noise
-    e = rng.normal(size=size)
-    p = np.zeros(size)
-
-    # Simulate
-    for i in range(size):
-        # Stochastic input
-        alpha = sd_e * e[i]
-
-        # Reversion bias
-        bias = brw_reversion_bias(xkm1, alpha1, alpha2, beta, tau)
-
-        # Regularization step (to avoid instability)
-        if abs(bias) < 2 * abs(xkm1 - tau):
-            x = xkm1 + bias + alpha
-        else:
-            x = tau + phi * (xkm1 - tau) + alpha
-
-        # Bounded process output
-        p[i] = x
-        xkm1 = x
-
+    # Run simulation
+    p = simulate_brw_irregular(e, t_eval, sd_e, xkm1, alpha1, alpha2, beta, tau, phi)
     return p
 
 
