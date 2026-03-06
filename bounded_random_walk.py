@@ -148,7 +148,7 @@ def sample_bounded_random_walk(
     return p.squeeze()
 
 
-@numba.njit
+#@numba.njit
 def simulate_brw_irregular(e, t_eval, sd_e, xkm1, alpha1, alpha2, beta, tau, phi):
     """
     Simulate multiple bounded random walks at irregular sample times.
@@ -182,6 +182,46 @@ def simulate_brw_irregular(e, t_eval, sd_e, xkm1, alpha1, alpha2, beta, tau, phi
     return p
 
 
+@numba.njit
+def simulate_brw_irregular(e, t_eval, sd_e, xkm1, alpha1, alpha2, beta, tau, phi):
+    """
+    Simulate bounded random walk at irregular sample times.
+    
+    Args:
+        e: array of shape (n_samples,) of standard normal samples
+        t_eval: array of sample times (monotonic increasing)
+        sd_e: scalar noise std
+        xkm1: scalar initial state
+        alpha1, alpha2, beta: BRW parameters (scalars)
+        tau: target value (scalar)
+        phi: regularization parameter
+    
+    Returns:
+        Array of shape (n_samples,)
+    """
+    n = len(e)
+    p = np.zeros(n)
+    
+    for i in range(n):
+        if i == 0:
+            dt = t_eval[0] if t_eval[0] > 0 else 1.0
+        else:
+            dt = t_eval[i] - t_eval[i - 1]
+        
+        bias = brw_reversion_bias(np.array([xkm1]), alpha1, alpha2, beta, tau)[0] * dt
+        alpha = sd_e * np.sqrt(dt) * e[i]
+        
+        if np.abs(bias) < 2 * np.abs(xkm1 - tau):
+            x = xkm1 + bias + alpha
+        else:
+            x = tau + phi * (xkm1 - tau) + alpha
+            
+        p[i] = x
+        xkm1 = x
+    
+    return p
+
+
 def sample_bounded_random_walk_irregular(
     sd_e, r1, r2, a1, a2, t_eval, phi=0.5, xkm1=None, rng=None, seed=0
 ):
@@ -207,10 +247,21 @@ def sample_bounded_random_walk_irregular(
     t_eval = np.asarray(t_eval, dtype=np.float64)
     n = len(t_eval)
 
+    # Convert parameters to scalars (irregular version doesn't support vectorization)
+    r1 = float(r1)
+    r2 = float(r2)
+    a1 = float(a1)
+    a2 = float(a2)
+    sd_e = float(sd_e)
+
     # Compute BRW parameters
-    alpha1, alpha2, beta = compute_brw_parameters_with_steepness(
-        r1, r2, a1, a2
-    )
+    alpha1, alpha2, beta = compute_brw_parameters_with_steepness(r1, r2, a1, a2)
+    
+    # Extract scalars from arrays returned by compute function
+    alpha1 = float(alpha1) if hasattr(alpha1, '__len__') else alpha1
+    alpha2 = float(alpha2) if hasattr(alpha2, '__len__') else alpha2
+    beta = float(beta) if hasattr(beta, '__len__') else beta
+    
     tau = 0.0
 
     if rng is None:
@@ -222,9 +273,12 @@ def sample_bounded_random_walk_irregular(
     # Set initial state
     if xkm1 is None:
         xkm1 = tau
+    else:
+        xkm1 = float(xkm1)
 
     # Run simulation
     p = simulate_brw_irregular(e, t_eval, sd_e, xkm1, alpha1, alpha2, beta, tau, phi)
+    
     return p
 
 
