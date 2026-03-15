@@ -1,8 +1,8 @@
-import numba
+# import numba
 import numpy as np
 
 
-@numba.njit
+# @numba.njit
 def brw_reversion_bias(x, alpha1, alpha2, beta, tau):
     """Calculate reversion bias for bounded random walk.
 
@@ -55,7 +55,7 @@ def compute_brw_parameters_with_steepness(r1, r2, a1, a2):
     alpha2_fallback = 2.0 / np.abs(r1)
     beta_fallback = np.log(1.0 / (2.0 * np.sinh(alpha1_fallback * r2)))
 
-    with np.errstate(invalid='ignore', divide='ignore'):
+    with np.errstate(invalid="ignore", divide="ignore"):
         beta_normal = np.log(-1.0 / term)
 
     alpha1 = np.where(small, alpha1_fallback, alpha1)
@@ -65,11 +65,11 @@ def compute_brw_parameters_with_steepness(r1, r2, a1, a2):
     return alpha1, alpha2, beta
 
 
-@numba.njit
+# @numba.njit
 def simulate_brw(e, sd_e, xkm1, alpha1, alpha2, beta, tau, phi):
     """
     Simulate multiple bounded random walks (vectorized).
-    
+
     Args:
         e: array of shape (n_samples, n_walks) of standard normal samples
         sd_e: array of shape (n_walks,), std of noise
@@ -77,7 +77,7 @@ def simulate_brw(e, sd_e, xkm1, alpha1, alpha2, beta, tau, phi):
         alpha1, alpha2, beta: BRW parameters
         tau: target value
         phi: regularization parameter
-    
+
     Returns:
         Array of shape (n_samples, n_walks)
     """
@@ -87,43 +87,124 @@ def simulate_brw(e, sd_e, xkm1, alpha1, alpha2, beta, tau, phi):
         bias = brw_reversion_bias(xkm1, alpha1, alpha2, beta, tau)
         alpha = sd_e * e[i]
         # Vectorized regularization
-        x = np.where(np.abs(bias) < 2 * np.abs(xkm1 - tau),
-                     xkm1 + bias + alpha,
-                     tau + phi * (xkm1 - tau) + alpha)
+        x = np.where(
+            np.abs(bias) < 2 * np.abs(xkm1 - tau),
+            xkm1 + bias + alpha,
+            tau + phi * (xkm1 - tau) + alpha,
+        )
         p[i] = x
         xkm1 = x  # update for next step
     return p
 
 
+def _infer_n_walks(n_walks, **params):
+    """Infer or validate n_walks from parameter shapes.
+
+    Args:
+        n_walks: Explicit number of walks, or None to infer.
+        **params: Named float parameters (scalar or 1-D array).
+
+    Returns:
+        Resolved n_walks (int).
+    """
+    lengths = set()
+    for val in params.values():
+        arr = np.atleast_1d(np.asarray(val, dtype=np.float64))
+        if arr.shape[0] > 1:
+            lengths.add(arr.shape[0])
+    if len(lengths) > 1:
+        raise ValueError(
+            f"Array arguments have inconsistent lengths: {sorted(lengths)}"
+        )
+    inferred = lengths.pop() if lengths else 1
+    if n_walks is None:
+        return inferred
+    if inferred > 1 and inferred != n_walks:
+        raise ValueError(
+            f"n_walks={n_walks} conflicts with array argument "
+            f"length {inferred}"
+        )
+    return n_walks
+
+
+def _broadcast_param(val, n_walks, name):
+    """Return val as a 1-D float64 array of length n_walks.
+
+    Scalars (or length-1 arrays) are tiled; length-n_walks arrays
+    are returned as-is.
+
+    Args:
+        val: Scalar or 1-D array.
+        n_walks: Target length.
+        name: Parameter name for error messages.
+
+    Returns:
+        np.ndarray of shape (n_walks,).
+    """
+    arr = np.atleast_1d(np.asarray(val, dtype=np.float64))
+    if arr.shape[0] == 1:
+        return np.full(n_walks, arr[0], dtype=np.float64)
+    if arr.shape[0] == n_walks:
+        return arr
+    raise ValueError(
+        f"{name} must be a scalar or have shape ({n_walks},), "
+        f"got shape {arr.shape}"
+    )
+
+
 def sample_bounded_random_walk(
-    sd_e, r1, r2, a1, a2, size, phi=0.5, xkm1=None, rng=None, seed=0
+    sd_e,
+    r1,
+    r2,
+    a1,
+    a2,
+    size,
+    phi=0.5,
+    xkm1=None,
+    rng=None,
+    seed=0,
+    n_walks=None,
 ):
-    # Convert BRW params to arrays to determine n_walks
-    r1 = np.atleast_1d(np.asarray(r1, dtype=np.float64))
-    r2 = np.atleast_1d(np.asarray(r2, dtype=np.float64))
-    a1 = np.atleast_1d(np.asarray(a1, dtype=np.float64))
-    a2 = np.atleast_1d(np.asarray(a2, dtype=np.float64))
+    """
+    Bounded random walk with uniform sampling.
 
-    n_walks = r1.shape[0]
+    Supports generation of multiple independent walks by passing array
+    parameters or specifying n_walks explicitly.
 
-    # Validate consistent shapes
-    if not (r2.shape == r1.shape == a1.shape == a2.shape):
-        raise ValueError(
-            f"r1, r2, a1, a2 must all have the same shape, got "
-            f"{r1.shape}, {r2.shape}, {a1.shape}, {a2.shape}"
-        )
+    Args:
+        sd_e: Standard deviation of the stochastic noise (scalar or
+            array of shape (n_walks,))
+        r1: Offset from zero where bias = +1 (scalar or array of
+            shape (n_walks,))
+        r2: Offset from zero where bias = -1 (scalar or array of
+            shape (n_walks,))
+        a1: |derivative| at r1 (scalar or array of shape (n_walks,))
+        a2: |derivative| at r2 (scalar or array of shape (n_walks,))
+        size: Number of samples to generate
+        phi: Regularization parameter
+        xkm1: Initial state value (optional, scalar or array of
+            shape (n_walks,))
+        rng: np.random.Generator (optional)
+        seed: Random seed if rng is None
+        n_walks: Number of independent walks. Inferred from the
+            longest array argument if None.
 
-    # sd_e can be scalar or array of shape (n_walks,)
-    sd_e = np.atleast_1d(np.asarray(sd_e, dtype=np.float64))
-    if sd_e.shape[0] == 1:
-        sd_e = np.full(n_walks, sd_e[0], dtype=np.float64)
-    elif sd_e.shape[0] != n_walks:
-        raise ValueError(
-            f"sd_e must be a scalar or have shape ({n_walks},), got {sd_e.shape}"
-        )
+    Returns:
+        Array of samples from bounded random walk:
+        - If n_walks == 1: shape (n_samples,)
+        - If n_walks > 1: shape (n_samples, n_walks)
+    """
+    n_walks = _infer_n_walks(n_walks, sd_e=sd_e, r1=r1, r2=r2, a1=a1, a2=a2)
+    sd_e = _broadcast_param(sd_e, n_walks, "sd_e")
+    r1 = _broadcast_param(r1, n_walks, "r1")
+    r2 = _broadcast_param(r2, n_walks, "r2")
+    a1 = _broadcast_param(a1, n_walks, "a1")
+    a2 = _broadcast_param(a2, n_walks, "a2")
 
     # Compute BRW parameters
-    alpha1, alpha2, beta = compute_brw_parameters_with_steepness(r1, r2, a1, a2)
+    alpha1, alpha2, beta = compute_brw_parameters_with_steepness(
+        r1, r2, a1, a2
+    )
 
     tau = 0.0
 
@@ -137,22 +218,20 @@ def sample_bounded_random_walk(
     if xkm1 is None:
         xkm1 = np.full(n_walks, tau, dtype=np.float64)
     else:
-        xkm1 = np.atleast_1d(np.asarray(xkm1, dtype=np.float64))
-        if xkm1.shape[0] != n_walks:
-            raise ValueError(
-                f"xkm1 must have shape ({n_walks},), got {xkm1.shape}"
-            )
+        xkm1 = _broadcast_param(xkm1, n_walks, "xkm1")
 
     p = simulate_brw(e, sd_e, xkm1, alpha1, alpha2, beta, tau, phi)
 
     return p.squeeze()
 
 
-@numba.njit
-def simulate_brw_irregular(e, t_eval, sd_e, xkm1, alpha1, alpha2, beta, tau, phi):
+# @numba.njit
+def simulate_brw_irregular(
+    e, t_eval, sd_e, xkm1, alpha1, alpha2, beta, tau, phi
+):
     """
     Simulate bounded random walk at irregular sample times.
-    
+
     Args:
         e: array of shape (n_samples,) of standard normal samples
         t_eval: array of sample times (monotonic increasing)
@@ -161,88 +240,93 @@ def simulate_brw_irregular(e, t_eval, sd_e, xkm1, alpha1, alpha2, beta, tau, phi
         alpha1, alpha2, beta: BRW parameters (scalars)
         tau: target value (scalar)
         phi: regularization parameter
-    
+
     Returns:
         Array of shape (n_samples,)
     """
     n = len(e)
     p = np.zeros(n)
-    
+
     for i in range(n):
         if i == 0:
             dt = t_eval[0] if t_eval[0] > 0 else 1.0
         else:
             dt = t_eval[i] - t_eval[i - 1]
-        
-        bias = brw_reversion_bias(np.array([xkm1]), alpha1, alpha2, beta, tau)[0] * dt
+
+        bias = (
+            brw_reversion_bias(np.array([xkm1]), alpha1, alpha2, beta, tau)[0]
+            * dt
+        )
         alpha = sd_e * np.sqrt(dt) * e[i]
-        
+
         if np.abs(bias) < 2 * np.abs(xkm1 - tau):
             x = xkm1 + bias + alpha
         else:
             x = tau + phi * (xkm1 - tau) + alpha
-            
+
         p[i] = x
         xkm1 = x
-    
+
     return p
 
 
 def sample_bounded_random_walk_irregular(
-    sd_e, r1, r2, a1, a2, t_eval, phi=0.5, xkm1=None, rng=None, seed=0
+    sd_e,
+    r1,
+    r2,
+    a1,
+    a2,
+    t_eval,
+    phi=0.5,
+    xkm1=None,
+    rng=None,
+    seed=0,
+    n_walks=None,
 ):
     """
     Bounded random walk with irregular sampling times.
-    
-    Supports generation of multiple independent walks by passing array parameters.
+
+    Supports generation of multiple independent walks by passing array
+    parameters or specifying n_walks explicitly.
 
     Args:
-        sd_e: Standard deviation of the stochastic noise (scalar or array of shape (n_walks,))
-        r1: Offset from zero where bias = +1 (scalar or array of shape (n_walks,))
-        r2: Offset from zero where bias = -1 (scalar or array of shape (n_walks,))
+        sd_e: Standard deviation of the stochastic noise (scalar or
+            array of shape (n_walks,))
+        r1: Offset from zero where bias = +1 (scalar or array of
+            shape (n_walks,))
+        r2: Offset from zero where bias = -1 (scalar or array of
+            shape (n_walks,))
         a1: |derivative| at r1 (scalar or array of shape (n_walks,))
         a2: |derivative| at r2 (scalar or array of shape (n_walks,))
         t_eval: Array of sample times (must be monotonically increasing)
         phi: Regularization parameter
-        xkm1: Initial state value (optional, scalar or array of shape (n_walks,))
+        xkm1: Initial state value (optional, scalar or array of
+            shape (n_walks,))
         rng: np.random.Generator (optional)
         seed: Random seed if rng is None
+        n_walks: Number of independent walks. Inferred from the
+            longest array argument if None.
 
     Returns:
         Array of samples from bounded random walk:
-        - If scalar parameters: shape (n_samples,)
-        - If array parameters: shape (n_samples, n_walks)
+        - If n_walks == 1: shape (n_samples,)
+        - If n_walks > 1: shape (n_samples, n_walks)
     """
     # Ensure t_eval is NumPy array
     t_eval = np.asarray(t_eval, dtype=np.float64)
     n = len(t_eval)
 
-    # Convert BRW params to arrays to determine n_walks
-    r1 = np.atleast_1d(np.asarray(r1, dtype=np.float64))
-    r2 = np.atleast_1d(np.asarray(r2, dtype=np.float64))
-    a1 = np.atleast_1d(np.asarray(a1, dtype=np.float64))
-    a2 = np.atleast_1d(np.asarray(a2, dtype=np.float64))
-
-    n_walks = r1.shape[0]
-
-    # Validate consistent shapes
-    if not (r2.shape == r1.shape == a1.shape == a2.shape):
-        raise ValueError(
-            f"r1, r2, a1, a2 must all have the same shape, got "
-            f"{r1.shape}, {r2.shape}, {a1.shape}, {a2.shape}"
-        )
-
-    # sd_e can be scalar or array of shape (n_walks,)
-    sd_e = np.atleast_1d(np.asarray(sd_e, dtype=np.float64))
-    if sd_e.shape[0] == 1:
-        sd_e = np.full(n_walks, sd_e[0], dtype=np.float64)
-    elif sd_e.shape[0] != n_walks:
-        raise ValueError(
-            f"sd_e must be a scalar or have shape ({n_walks},), got {sd_e.shape}"
-        )
+    n_walks = _infer_n_walks(n_walks, sd_e=sd_e, r1=r1, r2=r2, a1=a1, a2=a2)
+    sd_e = _broadcast_param(sd_e, n_walks, "sd_e")
+    r1 = _broadcast_param(r1, n_walks, "r1")
+    r2 = _broadcast_param(r2, n_walks, "r2")
+    a1 = _broadcast_param(a1, n_walks, "a1")
+    a2 = _broadcast_param(a2, n_walks, "a2")
 
     # Compute BRW parameters
-    alpha1, alpha2, beta = compute_brw_parameters_with_steepness(r1, r2, a1, a2)
+    alpha1, alpha2, beta = compute_brw_parameters_with_steepness(
+        r1, r2, a1, a2
+    )
 
     tau = 0.0
 
@@ -256,40 +340,37 @@ def sample_bounded_random_walk_irregular(
     if xkm1 is None:
         xkm1 = np.full(n_walks, tau, dtype=np.float64)
     else:
-        xkm1 = np.atleast_1d(np.asarray(xkm1, dtype=np.float64))
-        if xkm1.shape[0] != n_walks:
-            raise ValueError(
-                f"xkm1 must have shape ({n_walks},), got {xkm1.shape}"
-            )
+        xkm1 = _broadcast_param(xkm1, n_walks, "xkm1")
 
     # Simulate
     p = np.zeros((n, n_walks))
-    
+
     for i in range(n):
         # Calculate dt
         if i == 0:
             dt = t_eval[0] if t_eval[0] > 0 else 1.0
         else:
             dt = t_eval[i] - t_eval[i - 1]
-        
+
         # Reversion bias (vectorized) scaled by dt
-        bias_val = (np.exp(beta - alpha1 * (xkm1 - tau)) - 
-                    np.exp(beta + alpha2 * (xkm1 - tau)))
+        bias_val = np.exp(beta - alpha1 * (xkm1 - tau)) - np.exp(
+            beta + alpha2 * (xkm1 - tau)
+        )
         bias = bias_val * dt
-        
+
         # Stochastic input scaled by sqrt(dt)
         alpha = sd_e * np.sqrt(dt) * e[i]
-        
+
         # Regularization step (vectorized)
         x = np.where(
             np.abs(bias) < 2 * np.abs(xkm1 - tau),
             xkm1 + bias + alpha,
-            tau + phi * (xkm1 - tau) + alpha
+            tau + phi * (xkm1 - tau) + alpha,
         )
-        
+
         p[i] = x
         xkm1 = x
-    
+
     return p.squeeze()
 
 
@@ -343,12 +424,14 @@ if __name__ == "__main__":
 
     print(f"\nLow (a1=a2={a1_low}):")
     print(
-        f"  alpha1 = {alpha1_low:.4f}, alpha2 = {alpha2_low:.4f}, beta = {beta_low:.4f}"
+        f"  alpha1 = {alpha1_low:.4f}, alpha2 = {alpha2_low:.4f}, "
+        f"beta = {beta_low:.4f}"
     )
 
     print(f"\nHigh (a1=a2={a1_high}):")
     print(
-        f"  alpha1 = {alpha1_high:.4f}, alpha2 = {alpha2_high:.4f}, beta = {beta_high:.4f}"
+        f"  alpha1 = {alpha1_high:.4f}, alpha2 = {alpha2_high:.4f}, "
+        f"beta = {beta_high:.4f}"
     )
 
     # Analyze the bias functions
