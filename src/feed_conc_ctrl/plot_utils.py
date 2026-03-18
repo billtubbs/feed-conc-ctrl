@@ -60,7 +60,8 @@ def make_tsplots(
         subplot_units = []
 
         for name, info in sub_plot_info.items():
-            var_name = info.pop("var_name")
+            info = info.copy()  # avoid modifying original
+            var_name = info.pop("var_name")  # remove to avoid passing to plot
             try:
                 kind = info.pop("kind")
             except KeyError:
