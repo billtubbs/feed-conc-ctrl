@@ -11,6 +11,7 @@ def make_tsplots(
     time_label=None,
     legend_loc="best",
     figsize=None,
+    axes=None,
     **kwargs,
 ):
     """Create time series plots with multiple subplots.
@@ -24,6 +25,8 @@ def make_tsplots(
         legend_loc: Legend location (default: 'best'). Use 'outside right' to place
             legend to the right of the plot area, or any standard matplotlib location
             string ('upper left', 'lower right', etc.)
+        axes: Optional array of existing Axes to plot onto. If provided, no new
+            figure is created and figsize is ignored.
 
     Returns:
         fig, axes: Matplotlib figure and axes objects
@@ -55,14 +58,19 @@ def make_tsplots(
             time_label = "Time {time_units}"
 
     n_subplots = len(plot_info)
-    if figsize is None:
-        figsize = (8, 1.2 + 1.8 * n_subplots)
 
-    fig, axes = plt.subplots(n_subplots, 1, sharex=True, figsize=figsize)
-
-    # Handle case of single subplot (axes is not a list)
-    if n_subplots == 1:
-        axes = [axes]
+    if axes is not None:
+        # Use provided axes; derive figure from first axis
+        if n_subplots == 1 and not hasattr(axes, '__len__'):
+            axes = [axes]
+        fig = axes[0].get_figure()
+    else:
+        if figsize is None:
+            figsize = (8, 1.2 + 1.8 * n_subplots)
+        fig, axes = plt.subplots(n_subplots, 1, sharex=True, figsize=figsize)
+        # Handle case of single subplot (axes is not a list)
+        if n_subplots == 1:
+            axes = [axes]
 
     for ax, (title, sub_plot_info) in zip(axes, plot_info.items()):
         # Accumulate units for all variables in this subplot
