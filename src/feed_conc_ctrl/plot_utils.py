@@ -7,8 +7,8 @@ def make_tsplots(
     data,
     plot_info=None,
     units=None,
-    time_units="hours",
-    time_label="Time ({time_units})",
+    time_units=None,
+    time_label=None,
     legend_loc="best",
     figsize=None,
     **kwargs,
@@ -19,8 +19,8 @@ def make_tsplots(
         data: DataFrame with time series data
         plot_info: Dictionary mapping subplot titles to {legend_name: column_name} dicts
         units: Dictionary mapping variable names to unit strings for y-axis labels
-        time_units: String describing time units (default: 'hours')
-        time_label: Format string for x-axis label (default: 'Time ({time_units})')
+        time_units: String describing time units, e.g. 'hours', (default: None)
+        time_label: Format string for x-axis label, e.g. 'Time ({time_units})', (default: None)
         legend_loc: Legend location (default: 'best'). Use 'outside right' to place
             legend to the right of the plot area, or any standard matplotlib location
             string ('upper left', 'lower right', etc.)
@@ -45,6 +45,15 @@ def make_tsplots(
     """
     if plot_info is None:
         plot_info = {col: {col: {"var_name": col}} for col in data.columns}
+    if data.index.name is not None:
+        time_label = data.index.name
+    if time_units is None:
+        if time_label is None:
+            time_label = "Time"
+    else:
+        if time_label is None:
+            time_label = "Time {time_units}"
+
     n_subplots = len(plot_info)
     if figsize is None:
         figsize = (8, 1.2 + 1.8 * n_subplots)
