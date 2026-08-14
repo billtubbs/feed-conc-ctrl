@@ -1,10 +1,11 @@
 """Unit tests for MixingTankModelCT (continuous-time) class"""
 
-import pytest
-import numpy as np
 import casadi as cas
-from feed_conc_ctrl.models import MixingTankModelCT
+import numpy as np
+import pytest
 from cas_models.continuous_time.models import StateSpaceModelCT
+
+from feed_conc_ctrl.models import MixingTankModelCT
 
 
 class TestMixingTankModelCT:

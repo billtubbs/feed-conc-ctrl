@@ -61,7 +61,7 @@ def make_tsplots(
 
     if axes is not None:
         # Use provided axes; derive figure from first axis
-        if n_subplots == 1 and not hasattr(axes, '__len__'):
+        if n_subplots == 1 and not hasattr(axes, "__len__"):
             axes = [axes]
         fig = axes[0].get_figure()
     else:

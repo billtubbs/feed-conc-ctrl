@@ -15,9 +15,9 @@ def generate_system_f_and_h_as_symbolic_vectors(model, control_design, system):
     for name in system.input_names:
         if name in control_design["manipulated_variables"]:
             inputs.append(model.u[name])
-        elif name in control_design.get("measured_disturbances", []):
-            inputs.append(model.x[name])
-        elif name in control_design.get("unmeasured_disturbances", []):
+        elif name in control_design.get(
+            "measured_disturbances", []
+        ) or name in control_design.get("unmeasured_disturbances", []):
             inputs.append(model.x[name])
     inputs = cas.vcat(inputs)
 
@@ -285,9 +285,7 @@ def construct_mpc(
     for cv_name, sp_value in setpoints.items():
         # If value is a string, the setpoint is a time-varying parameter
         if isinstance(sp_value, str):
-            model.set_variable(
-                var_type="_tvp", var_name=sp_value, shape=(1, 1)
-            )
+            model.set_variable(var_type="_tvp", var_name=sp_value, shape=(1, 1))
 
     # ========================================
     # 3. Define ODE and output expressions

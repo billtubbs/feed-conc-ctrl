@@ -121,8 +121,7 @@ def _infer_n_walks(n_walks, **params):
         return inferred
     if inferred > 1 and inferred != n_walks:
         raise ValueError(
-            f"n_walks={n_walks} conflicts with array argument "
-            f"length {inferred}"
+            f"n_walks={n_walks} conflicts with array argument length {inferred}"
         )
     return n_walks
 
@@ -202,9 +201,7 @@ def sample_bounded_random_walk(
     a2 = _broadcast_param(a2, n_walks, "a2")
 
     # Compute BRW parameters
-    alpha1, alpha2, beta = compute_brw_parameters_with_steepness(
-        r1, r2, a1, a2
-    )
+    alpha1, alpha2, beta = compute_brw_parameters_with_steepness(r1, r2, a1, a2)
 
     tau = 0.0
 
@@ -324,9 +321,7 @@ def sample_bounded_random_walk_irregular(
     a2 = _broadcast_param(a2, n_walks, "a2")
 
     # Compute BRW parameters
-    alpha1, alpha2, beta = compute_brw_parameters_with_steepness(
-        r1, r2, a1, a2
-    )
+    alpha1, alpha2, beta = compute_brw_parameters_with_steepness(r1, r2, a1, a2)
 
     tau = 0.0
 
@@ -414,11 +409,11 @@ if __name__ == "__main__":
     alpha1_low, alpha2_low, beta_low = compute_brw_parameters_with_steepness(
         r1, r2, a1_low, a2_low
     )
-    alpha1_high, alpha2_high, beta_high = (
-        compute_brw_parameters_with_steepness(r1, r2, a1_high, a2_high)
+    alpha1_high, alpha2_high, beta_high = compute_brw_parameters_with_steepness(
+        r1, r2, a1_high, a2_high
     )
 
-    print(f"Common parameters:")
+    print("Common parameters:")
     print(f"  r1 = {r1}, r2 = {r2}, y_nop = {y_nop}")
     print(f"  sd_e = {sd_e}")
 
@@ -478,12 +473,8 @@ if __name__ == "__main__":
         alpha=0.5,
         label=f"y_nop = {y_nop}",
     )
-    ax1.axhline(
-        y_nop + r1, color="gray", linestyle=":", linewidth=1, alpha=0.5
-    )
-    ax1.axhline(
-        y_nop + r2, color="gray", linestyle=":", linewidth=1, alpha=0.5
-    )
+    ax1.axhline(y_nop + r1, color="gray", linestyle=":", linewidth=1, alpha=0.5)
+    ax1.axhline(y_nop + r2, color="gray", linestyle=":", linewidth=1, alpha=0.5)
     ax1.set_xlabel("Sample")
     ax1.set_ylabel("Value")
     ax1.set_title(f"Bounded Random Walk Comparison ({size:,d} samples)")
@@ -501,12 +492,8 @@ if __name__ == "__main__":
         color="blue",
     )
     ax2.axvline(y_nop, color="g", linestyle="--", linewidth=2, alpha=0.5)
-    ax2.axvline(
-        y_nop + r1, color="gray", linestyle=":", linewidth=1, alpha=0.5
-    )
-    ax2.axvline(
-        y_nop + r2, color="gray", linestyle=":", linewidth=1, alpha=0.5
-    )
+    ax2.axvline(y_nop + r1, color="gray", linestyle=":", linewidth=1, alpha=0.5)
+    ax2.axvline(y_nop + r2, color="gray", linestyle=":", linewidth=1, alpha=0.5)
     ax2.set_xlabel("Value")
     ax2.set_ylabel("Density")
     ax2.set_title(f"Distribution (a={a1_low})")
@@ -522,12 +509,8 @@ if __name__ == "__main__":
         color="red",
     )
     ax3.axvline(y_nop, color="g", linestyle="--", linewidth=2, alpha=0.5)
-    ax3.axvline(
-        y_nop + r1, color="gray", linestyle=":", linewidth=1, alpha=0.5
-    )
-    ax3.axvline(
-        y_nop + r2, color="gray", linestyle=":", linewidth=1, alpha=0.5
-    )
+    ax3.axvline(y_nop + r1, color="gray", linestyle=":", linewidth=1, alpha=0.5)
+    ax3.axvline(y_nop + r2, color="gray", linestyle=":", linewidth=1, alpha=0.5)
     ax3.set_xlabel("Value")
     ax3.set_ylabel("Density")
     ax3.set_title(f"Distribution (a={a1_high})")
@@ -553,12 +536,8 @@ if __name__ == "__main__":
     ax4.axhline(1, color="orange", linestyle="--", linewidth=1, alpha=0.5)
     ax4.axhline(-1, color="orange", linestyle="--", linewidth=1, alpha=0.5)
     ax4.axvline(y_nop, color="g", linestyle="--", linewidth=2, alpha=0.5)
-    ax4.axvline(
-        y_nop + r1, color="gray", linestyle=":", linewidth=1, alpha=0.5
-    )
-    ax4.axvline(
-        y_nop + r2, color="gray", linestyle=":", linewidth=1, alpha=0.5
-    )
+    ax4.axvline(y_nop + r1, color="gray", linestyle=":", linewidth=1, alpha=0.5)
+    ax4.axvline(y_nop + r2, color="gray", linestyle=":", linewidth=1, alpha=0.5)
     ax4.scatter([y_nop + r1, y_nop + r2], [1, -1], color="orange")
     ax4.set_xlabel("x")
     ax4.set_ylabel("$a(x)$ - bias")
@@ -569,13 +548,13 @@ if __name__ == "__main__":
     plt.tight_layout()
     plt.show()
 
-    print(f"\nLow sample statistics:")
+    print("\nLow sample statistics:")
     print(f"  Mean: {np.mean(samples_low):.4f}")
     print(f"  Std: {np.std(samples_low):.4f}")
     print(f"  Min: {np.min(samples_low):.4f}")
     print(f"  Max: {np.max(samples_low):.4f}")
 
-    print(f"\nHigh sample statistics:")
+    print("\nHigh sample statistics:")
     print(f"  Mean: {np.mean(samples_high):.4f}")
     print(f"  Std: {np.std(samples_high):.4f}")
     print(f"  Min: {np.min(samples_high):.4f}")

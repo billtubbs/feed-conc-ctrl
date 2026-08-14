@@ -1,10 +1,11 @@
 """Unit tests for MixingTankModelDT (discrete-time) class"""
 
-import pytest
-import numpy as np
 import casadi as cas
-from feed_conc_ctrl.models import MixingTankModelDT
+import numpy as np
+import pytest
 from cas_models.discrete_time.models import StateSpaceModelDT
+
+from feed_conc_ctrl.models import MixingTankModelDT
 
 
 class TestMixingTankModelDT:

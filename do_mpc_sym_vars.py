@@ -1,7 +1,7 @@
 # Compare different ways of accessing symbolic variables
 
-import do_mpc
 import casadi as cas
+import do_mpc
 
 # Minimal example showing symbols change after model.setup()
 model = do_mpc.model.Model("continuous")
@@ -52,9 +52,7 @@ print(f"   Symbolically equal: {cas.is_equal(x1_from_def, x1_after_setup)}")
 print(f"   Same object: {x1_from_def is x1_after_setup}")
 
 print("\n3. x1_before_setup vs x1_after_setup:")
-print(
-    f"   Symbolically equal: {cas.is_equal(x1_before_setup, x1_after_setup)}"
-)
+print(f"   Symbolically equal: {cas.is_equal(x1_before_setup, x1_after_setup)}")
 print(f"   Same object: {x1_before_setup is x1_after_setup}")
 
 print("\n" + "=" * 60)

@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
-from bounded_random_walk import sample_bounded_random_walk
 
+from bounded_random_walk import sample_bounded_random_walk
 
 # Shared test parameters
 SD_E = 1.0
@@ -48,7 +48,9 @@ class TestSampleBRWScalarSdE:
     """Case 2: sd_e is scalar, BRW params are arrays — multiple walks, same std."""
 
     def test_output_shape(self):
-        p = sample_bounded_random_walk(SD_E, R1_ARR, R2_ARR, A1_ARR, A2_ARR, SIZE)
+        p = sample_bounded_random_walk(
+            SD_E, R1_ARR, R2_ARR, A1_ARR, A2_ARR, SIZE
+        )
         assert p.shape == (SIZE, N_WALKS)
         assert p.dtype == np.float64
 
@@ -127,13 +129,19 @@ class TestSampleBRWValidation:
     """Test input validation."""
 
     def test_mismatched_brw_param_shapes(self):
-        with pytest.raises(ValueError, match="r1, r2, a1, a2 must all have the same shape"):
+        with pytest.raises(
+            ValueError, match="r1, r2, a1, a2 must all have the same shape"
+        ):
             sample_bounded_random_walk(SD_E, R1_ARR, R2, A1_ARR, A2_ARR, SIZE)
 
     def test_mismatched_sd_e_shape(self):
         wrong_sd_e = np.full(N_WALKS + 1, SD_E)
-        with pytest.raises(ValueError, match="sd_e must be a scalar or have shape"):
-            sample_bounded_random_walk(wrong_sd_e, R1_ARR, R2_ARR, A1_ARR, A2_ARR, SIZE)
+        with pytest.raises(
+            ValueError, match="sd_e must be a scalar or have shape"
+        ):
+            sample_bounded_random_walk(
+                wrong_sd_e, R1_ARR, R2_ARR, A1_ARR, A2_ARR, SIZE
+            )
 
     def test_mismatched_xkm1_shape(self):
         wrong_xkm1 = np.zeros(N_WALKS + 1)

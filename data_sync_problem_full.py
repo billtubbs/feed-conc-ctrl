@@ -1,8 +1,9 @@
-import do_mpc
+from platform import python_version
+
 import casadi as cas
+import do_mpc
 import numpy as np
 import pandas as pd
-from platform import python_version
 
 # Define system: single integrator
 model = do_mpc.model.Model("continuous")
@@ -27,8 +28,8 @@ estimator = do_mpc.estimator.EKF(model=model)
 # estimator = do_mpc.estimator.StateFeedback(model)
 estimator.settings.t_step = t_step
 estimator.setup()
-Q = cas.DM([[0.01 ** 2]])  # process noise
-R = cas.DM([[0.1 ** 2]])  # measurement noise
+Q = cas.DM([[0.01**2]])  # process noise
+R = cas.DM([[0.1**2]])  # measurement noise
 
 # Define controller
 mpc = do_mpc.controller.MPC(model)
