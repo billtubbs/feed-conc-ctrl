@@ -7,7 +7,7 @@ name = "feed-concentration-control"
 version = "0.1.0"
 description = "Model process plant feed concentration blending tank operations to minimize variations in plant feed stream due to unpredictable disturbances in the concentration of delivered quantities"
 readme = "README.md"
-requires-python = ">=3.8, <3.14"
+requires-python = ">=3.8"
 license = "MIT"
 authors = [
     {name = "Bill Tubbs", email = "bill.tubbs@me.com"}
@@ -27,6 +27,7 @@ classifiers = [
 dependencies = [
     "casadi==3.7.2",
     "casadi-models @ git+https://github.com/billtubbs/casadi-models.git",
+    "python-pid @ git+https://github.com/billtubbs/pid-ref.git#subdirectory=python_pid",
     "do_mpc==5.1.1",
     "ipykernel==7.1.0",
     "ipython==9.6.0",
