@@ -1,0 +1,14 @@
+casadi
+git+https://github.com/billtubbs/casadi-models.git#egg=casadi-models
+git+https://github.com/billtubbs/pid-ref.git#subdirectory=python_pid&egg=python-pid
+do_mpc
+ipykernel
+ipython
+matplotlib
+numpy
+pandas
+pytest
+PyYAML
+scipy
+sympy
+tqdm
