@@ -1,11 +1,16 @@
 """Unit tests for FlowMixerCT and FlowMixerDT classes"""
 
-import pytest
-import numpy as np
 import casadi as cas
-from feed_conc_ctrl.models import FlowMixerCT, FlowMixerDT, RatioControlledFlowMixerCT
+import numpy as np
+import pytest
 from cas_models.continuous_time.models import StateSpaceModelCT
 from cas_models.discrete_time.models import StateSpaceModelDT
+
+from feed_conc_ctrl.models import (
+    FlowMixerCT,
+    FlowMixerDT,
+    RatioControlledFlowMixerCT,
+)
 
 
 class TestFlowMixerCT:
@@ -149,9 +154,7 @@ class TestFlowMixerCT:
 
         # Expected outputs
         v_dot_out_expected = v_dot_1 + v_dot_2 + v_dot_3  # 4.5
-        mass_flow_total = (
-            v_dot_1 * conc_1 + v_dot_2 * conc_2 + v_dot_3 * conc_3
-        )
+        mass_flow_total = v_dot_1 * conc_1 + v_dot_2 * conc_2 + v_dot_3 * conc_3
         # = 1.0*0.5 + 2.0*0.75 + 1.5*0.6 = 0.5 + 1.5 + 0.9 = 2.9
         conc_out_expected = mass_flow_total / v_dot_out_expected
         # = 2.9 / 4.5 ≈ 0.6444
@@ -326,9 +329,7 @@ class TestFlowMixerDT:
 
         # Expected outputs
         v_dot_out_expected = v_dot_1 + v_dot_2 + v_dot_3  # 4.5
-        mass_flow_total = (
-            v_dot_1 * conc_1 + v_dot_2 * conc_2 + v_dot_3 * conc_3
-        )
+        mass_flow_total = v_dot_1 * conc_1 + v_dot_2 * conc_2 + v_dot_3 * conc_3
         conc_out_expected = mass_flow_total / v_dot_out_expected
 
         assert np.allclose(yk_array[0], v_dot_out_expected, rtol=1e-10)
@@ -438,7 +439,9 @@ class TestRatioControlledFlowMixerCT:
         # Check model dimensions (stateless system)
         assert model.n == 0, "Should have 0 states (stateless system)"
         assert model.nu == 4, "Should have 4 inputs (2 inlets x 2 properties)"
-        assert model.ny == 3, "Should have 3 outputs (2 inflows + concentration)"
+        assert model.ny == 3, (
+            "Should have 3 outputs (2 inflows + concentration)"
+        )
 
         # Check default name
         assert model.name == "FlowMixerModel"
@@ -479,7 +482,12 @@ class TestRatioControlledFlowMixerCT:
         assert model.input_names == expected_inputs
 
         # Check output names
-        expected_outputs = ["v_dot_in_1", "v_dot_in_2", "v_dot_in_3", "conc_out"]
+        expected_outputs = [
+            "v_dot_in_1",
+            "v_dot_in_2",
+            "v_dot_in_3",
+            "conc_out",
+        ]
         assert model.output_names == expected_outputs
 
     def test_initialization_with_name(self):
@@ -603,7 +611,9 @@ class TestRatioControlledFlowMixerCT:
         v_dot_in_2_expected = r_2 * v_dot_out  # 0.3 * 5.0 = 1.5
         v_dot_in_3_expected = (1 - r_1 - r_2) * v_dot_out  # 0.5 * 5.0 = 2.5
         mass_flow_total = (
-            v_dot_in_1_expected * conc_1 + v_dot_in_2_expected * conc_2 + v_dot_in_3_expected * conc_3
+            v_dot_in_1_expected * conc_1
+            + v_dot_in_2_expected * conc_2
+            + v_dot_in_3_expected * conc_3
         )
         # = 1.0*0.5 + 1.5*0.75 + 2.5*0.6 = 0.5 + 1.125 + 1.5 = 3.125
         conc_out_expected = mass_flow_total / v_dot_out
@@ -655,7 +665,9 @@ class TestRatioControlledFlowMixerCT:
 
         # With r_1 = 0, all flow comes from inlet 2
         assert np.allclose(y_array[0], 0.0, rtol=1e-10)  # v_dot_in_1 = 0
-        assert np.allclose(y_array[1], v_dot_out, rtol=1e-10)  # v_dot_in_2 = v_dot_out
+        assert np.allclose(
+            y_array[1], v_dot_out, rtol=1e-10
+        )  # v_dot_in_2 = v_dot_out
         assert np.allclose(y_array[2], conc_2, rtol=1e-10)  # conc_out = conc_2
 
     def test_output_function_equal_ratios(self):

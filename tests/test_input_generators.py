@@ -5,6 +5,7 @@ brw_reversion_bias.m
 """
 
 import numpy as np
+
 from feed_conc_ctrl.input_generators import (
     brw_reversion_bias,
     sample_bounded_random_walk,

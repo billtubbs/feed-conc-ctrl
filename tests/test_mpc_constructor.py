@@ -1,16 +1,16 @@
 """Tests for MPC constructor function."""
 
 from pathlib import Path
+
+import do_mpc
 import numpy as np
 import pandas as pd
 import pytest
-import do_mpc
-
 from cas_models.continuous_time.models import StateSpaceModelCT
 from cas_models.transformations import connect_systems
 
-from feed_conc_ctrl.models import MixingTankModelCT, RatioControlledFlowMixerCT
 from do_mpc_utils.mpc_constructor import construct_mpc
+from feed_conc_ctrl.models import MixingTankModelCT, RatioControlledFlowMixerCT
 
 
 @pytest.fixture
@@ -220,13 +220,11 @@ def test_construct_mpc_creates_controller(
     for state_name, state_bounds in bounds["system_states"].items():
         if "lower" in state_bounds:
             assert (
-                mpc.bounds["lower", "_x", state_name]
-                == (state_bounds["lower"])
+                mpc.bounds["lower", "_x", state_name] == (state_bounds["lower"])
             )
         if "upper" in state_bounds:
             assert (
-                mpc.bounds["upper", "_x", state_name]
-                == (state_bounds["upper"])
+                mpc.bounds["upper", "_x", state_name] == (state_bounds["upper"])
             )
 
 
@@ -360,9 +358,7 @@ def test_mpc_simulation_matches_notebook(
     # Compare manipulated variables
     for mv_name in control_design["manipulated_variables"]:
         sim_values = sim_results["manipulated_inputs"][mv_name].values
-        notebook_values = notebook_results["manipulated_inputs"][
-            mv_name
-        ].values
+        notebook_values = notebook_results["manipulated_inputs"][mv_name].values
 
         # Check that MVs match within tolerance
         np.testing.assert_allclose(

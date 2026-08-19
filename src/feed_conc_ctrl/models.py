@@ -1,6 +1,7 @@
 """State-space models for mixing tank with concentration control."""
 
 from itertools import chain
+
 import casadi as cas
 import numpy as np
 from cas_models.continuous_time.models import (

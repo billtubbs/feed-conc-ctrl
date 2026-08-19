@@ -1,11 +1,11 @@
-from pathlib import Path
-from collections import defaultdict
-
 import warnings
-import numpy as np
-import pandas as pd
+from collections import defaultdict
+from pathlib import Path
+
 import casadi as cas
 import casadi.tools as castools
+import numpy as np
+import pandas as pd
 
 # Suppress do_mpc optional feature warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="do_mpc.sysid")
@@ -804,8 +804,7 @@ def run_simulation():
         x0 = {name: float(value) for name, value in dict(mpc.x0).items()}
         y0 = {name: float(y0[i]) for i, name in enumerate(output_names)}
         y0_m = {
-            name: float(y0_m[i])
-            for i, name in enumerate(measured_output_names)
+            name: float(y0_m[i]) for i, name in enumerate(measured_output_names)
         }
 
         # Extract current setpoints from MPC's TVP function

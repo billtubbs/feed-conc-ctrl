@@ -1,8 +1,9 @@
-import do_mpc
+from platform import python_version
+
 import casadi as cas
+import do_mpc
 import numpy as np
 import pandas as pd
-from platform import python_version
 
 # Minimal System: Integrator
 model = do_mpc.model.Model("continuous")
